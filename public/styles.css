@@ -273,6 +273,29 @@ html, body {
   font-size: 13px;
 }
 
+/* vs-layout row: score | my player | opponent player | score, mirrored
+   left-right so both sides read outward-in toward the center, matching
+   the mockup layout. */
+.player-row-vs {
+  display: grid !important;
+  grid-template-columns: 28px 1fr 1fr 28px;
+  gap: 6px;
+  align-items: center;
+}
+
+.player-row-vs .player-pts {
+  text-align: center;
+}
+
+.player-row-vs .player-name {
+  max-width: none;
+}
+
+.player-row-vs .opponent-name {
+  text-align: right;
+  color: var(--text-dim);
+}
+
 /* ---------- Expanded overlay ---------- */
 
 .expand-overlay {

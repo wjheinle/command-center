@@ -81,12 +81,32 @@ function renderSnapshot(snapshot) {
 
 function normalizeEspnLeague(league) {
   const m = (league.matchups || [])[0];
-  const players = (league.myRoster || []).map(p => ({
-    playerName: p.playerName,
-    position: p.position,
-    points: p.points,
-    note: null,
-  }));
+  const myRoster = league.myRoster || [];
+  const opponentRoster = league.opponentRoster || [];
+
+  // Pair each of Bill's starters with his opponent's starter in the SAME
+  // lineup slot (both teams use the same slot structure — same number of
+  // RB/WR/etc slots — so pairing by position label lines up correctly even
+  // though the two arrays hold different players). Bill's roster order
+  // (already sorted QB/RB/WR/TE/FLEX/DEF/K) drives the row order.
+  const opponentByPositionQueue = {};
+  opponentRoster.forEach(p => {
+    const key = p.position || 'UNKNOWN';
+    (opponentByPositionQueue[key] = opponentByPositionQueue[key] || []).push(p);
+  });
+
+  const players = myRoster.map(p => {
+    const key = p.position || 'UNKNOWN';
+    const opponentPlayer = (opponentByPositionQueue[key] || []).shift() || null;
+    return {
+      playerName: p.playerName,
+      position: p.position,
+      points: p.points,
+      note: null,
+      opponentPlayerName: opponentPlayer?.playerName || null,
+      opponentPoints: opponentPlayer?.points ?? null,
+    };
+  });
 
   return {
     id: `espn-${league.leagueId}`,
@@ -94,6 +114,7 @@ function normalizeEspnLeague(league) {
     tag: league.myTeamFound === false ? 'name not matched' : null,
     error: league.error || null, // a full league-fetch failure — blocks the whole box
     playerDetailNote: league.myRosterError || null, // partial failure — matchup score still shows, just no player breakdown
+    showOpponentColumn: true,
     totals: m ? {
       home: { label: m.home?.teamName, total: m.home?.score },
       away: m.away ? { label: m.away.teamName, total: m.away.score } : null,
@@ -230,7 +251,6 @@ function renderFantasyBox(box, expanded) {
     } else {
       box.players.forEach(p => {
         const row = document.createElement('div');
-        row.className = 'player-row';
         // Manual override only makes sense where auto-scoring is a known
         // weak spot — that's Yahoo's reconstructed scoring (kicker distance,
         // DEF not fully wired), NOT the ESPN boxes, where K/DEF points come
@@ -238,13 +258,25 @@ function renderFantasyBox(box, expanded) {
         // accurate. Gate on the box supporting adjustments at all, not just
         // on position.
         const needsAdjust = box.allowManualAdjust && (p.position === 'K' || p.position === 'DEF' || p.position === 'D/ST' || p.note);
-        row.innerHTML = `
-          <span class="player-name">${escapeHtml(p.playerName)} <span class="player-pos">${escapeHtml(p.position || '')}</span></span>
-          <span style="display:flex; align-items:center;">
+
+        if (box.showOpponentColumn) {
+          row.className = 'player-row player-row-vs';
+          row.innerHTML = `
             <span class="player-pts">${p.points != null ? p.points : '—'}</span>
-            ${needsAdjust ? `<button class="adjust-btn" data-player="${escapeHtml(p.playerName)}" data-current="${p.points != null ? p.points : ''}">adjust</button>` : ''}
-          </span>
-        `;
+            <span class="player-name">${escapeHtml(p.playerName)} <span class="player-pos">${escapeHtml(p.position || '')}</span></span>
+            <span class="player-name opponent-name">${p.opponentPlayerName ? escapeHtml(p.opponentPlayerName) : '—'}</span>
+            <span class="player-pts">${p.opponentPoints != null ? p.opponentPoints : '—'}</span>
+          `;
+        } else {
+          row.className = 'player-row';
+          row.innerHTML = `
+            <span class="player-name">${escapeHtml(p.playerName)} <span class="player-pos">${escapeHtml(p.position || '')}</span></span>
+            <span style="display:flex; align-items:center;">
+              <span class="player-pts">${p.points != null ? p.points : '—'}</span>
+              ${needsAdjust ? `<button class="adjust-btn" data-player="${escapeHtml(p.playerName)}" data-current="${p.points != null ? p.points : ''}">adjust</button>` : ''}
+            </span>
+          `;
+        }
         playersBody.appendChild(row);
       });
     }
@@ -403,10 +435,14 @@ async function openAdjustPrompt(playerName, currentValue) {
     return;
   }
 
+  // Tag the override with the current NFL week so it doesn't silently
+  // carry over and get misapplied to a different week's game.
+  const week = lastSnapshotData?.currentWeek ?? null;
+
   await fetch('/api/yahoo-manual-adjustments', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ playerName, points }),
+    body: JSON.stringify({ playerName, points, week }),
   });
   fetchSnapshot();
 }
