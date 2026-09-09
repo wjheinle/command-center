@@ -7,6 +7,11 @@
 //   ESPN_SWID     — value of the SWID cookie (include the curly braces)
 //   ESPN_LEAGUE_IDS — comma-separated list, e.g. "111111,222222,333333"
 //   ESPN_SEASON   — e.g. "2026"
+//   ESPN_TEAM_NAMES — comma-separated list of Bill's team name in EACH
+//                     league (names can differ per league), e.g.
+//                     "Spit on That Thang,Bud Light is Gross,..." — used
+//                     to pick out his specific matchup from the several
+//                     that exist in a league each week.
 
 const fetch = require('node-fetch');
 
@@ -34,7 +39,7 @@ function cookieHeader() {
 // ESPN's marketing homepage instead of returning API JSON (which then fails
 // to parse with a confusing "Unexpected end of JSON input" error).
 async function fetchLeague(leagueId) {
-  const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mScoreboard&view=mTeam&view=mRoster`;
+  const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mScoreboard&view=mTeam&view=mRoster&view=mSettings`;
   const cookie = cookieHeader();
 
   const headers = { ...BROWSER_HEADERS };
@@ -71,31 +76,55 @@ function normalizeLeague(leagueId, data) {
 
   const currentPeriod = data.scoringPeriodId;
 
-  const matchups = (data.schedule || [])
-    .filter(m => m.matchupPeriodId === data.status?.currentMatchupPeriod)
-    .map(m => {
-      const home = m.home || {};
-      const away = m.away || {};
-      return {
-        matchupId: m.id,
-        home: {
-          teamId: home.teamId,
-          teamName: teamsById[home.teamId]?.name || `Team ${home.teamId}`,
-          score: home.totalPoints ?? home.pointsByScoringPeriod?.[currentPeriod] ?? null,
-        },
-        away: away.teamId != null ? {
-          teamId: away.teamId,
-          teamName: teamsById[away.teamId]?.name || `Team ${away.teamId}`,
-          score: away.totalPoints ?? away.pointsByScoringPeriod?.[currentPeriod] ?? null,
-        } : null,
-      };
-    });
+  // A league has one matchup PER PAIR OF TEAMS in a given period (a 12-team
+  // league has 6 simultaneous matchups) — filtering by period alone returns
+  // all of them, not just Bill's. Find his team by name, then pick only the
+  // matchup he's actually in, rather than defaulting to whichever happens
+  // to be first in ESPN's array.
+  //
+  // Only case and surrounding whitespace are normalized — a genuine typo
+  // (a missing apostrophe, a misspelled word) should NOT silently match;
+  // that's what the myTeamFound flag and "name not matched" UI tag are for.
+  const normalizeTeamName = (s) => s.trim().toLowerCase().replace(/\s+/g, ' ');
+
+  const myTeamNames = (process.env.ESPN_TEAM_NAMES || '')
+    .split(',')
+    .map(normalizeTeamName)
+    .filter(Boolean);
+
+  const myTeam = Object.values(teamsById).find(t => myTeamNames.includes(normalizeTeamName(t.name)));
+
+  const periodMatchups = (data.schedule || [])
+    .filter(m => m.matchupPeriodId === data.status?.currentMatchupPeriod);
+
+  const myMatchup = myTeam
+    ? periodMatchups.find(m => m.home?.teamId === myTeam.id || m.away?.teamId === myTeam.id)
+    : periodMatchups[0]; // fallback if we don't know Bill's team name in this league
+
+  const matchups = myMatchup ? [myMatchup].map(m => {
+    const home = m.home || {};
+    const away = m.away || {};
+    return {
+      matchupId: m.id,
+      home: {
+        teamId: home.teamId,
+        teamName: teamsById[home.teamId]?.name || `Team ${home.teamId}`,
+        score: home.totalPoints ?? home.pointsByScoringPeriod?.[currentPeriod] ?? null,
+      },
+      away: away.teamId != null ? {
+        teamId: away.teamId,
+        teamName: teamsById[away.teamId]?.name || `Team ${away.teamId}`,
+        score: away.totalPoints ?? away.pointsByScoringPeriod?.[currentPeriod] ?? null,
+      } : null,
+    };
+  }) : [];
 
   return {
     leagueId,
     leagueName: data.settings?.name || `League ${leagueId}`,
     scoringPeriodId: currentPeriod,
     matchups,
+    myTeamFound: !!myTeam,
     fetchedAt: new Date().toISOString(),
   };
 }
