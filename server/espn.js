@@ -29,8 +29,12 @@ function cookieHeader() {
 }
 
 // mMatchupScore + mScoreboard gives live scoring for the current matchup period.
+// NOTE: the read endpoint lives on lm-api-reads.fantasy.espn.com, not plain
+// fantasy.espn.com — hitting the old domain gets silently redirected to
+// ESPN's marketing homepage instead of returning API JSON (which then fails
+// to parse with a confusing "Unexpected end of JSON input" error).
 async function fetchLeague(leagueId) {
-  const url = `https://fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mScoreboard&view=mTeam&view=mRoster`;
+  const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mScoreboard&view=mTeam&view=mRoster`;
   const cookie = cookieHeader();
 
   const headers = { ...BROWSER_HEADERS };
@@ -40,6 +44,15 @@ async function fetchLeague(leagueId) {
 
   if (!res.ok) {
     throw new Error(`ESPN league ${leagueId} fetch failed: ${res.status} ${res.statusText}`);
+  }
+
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    // ESPN sometimes returns a 200 with an HTML page instead of a real API
+    // error — catch that here with a clear message instead of letting
+    // res.json() throw a confusing parse error.
+    const preview = (await res.text()).slice(0, 200);
+    throw new Error(`ESPN league ${leagueId}: expected JSON but got ${contentType || 'unknown content-type'}. Response starts: ${preview}`);
   }
 
   const data = await res.json();
