@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>Command Center</title>
+<link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">CC</span>
+    <span class="brand-name">Command Center</span>
+  </div>
+  <div class="topbar-right">
+    <span class="clock" id="clock"></span>
+    <button class="tracking-btn" id="trackingBtn" data-on="false">
+      <span class="dot"></span>
+      <span class="label">Tracking Off</span>
+    </button>
+  </div>
+</header>
+
+<main class="grid">
+
+  <section class="col fantasy-col">
+    <div class="fantasy-grid" id="fantasyGrid"></div>
+  </section>
+
+  <section class="col side-col">
+    <div class="panel picks-panel" id="pickemPanel">
+      <div class="panel-head">
+        <div class="pickem-title-group">
+          <h2>Pick&rsquo;em</h2>
+          <div class="pool-toggle" id="poolToggle">
+            <button class="pool-toggle-btn active" data-pool="1">Prevent D</button>
+            <button class="pool-toggle-btn" data-pool="2">Sun Funday</button>
+          </div>
+        </div>
+        <button class="capture-btn" id="pickemCaptureBtn" data-kind="pickem1">Capture</button>
+      </div>
+      <div class="panel-body pickem-body" id="pickemBody">
+        <p class="empty-state">No picks captured for this week yet.</p>
+      </div>
+    </div>
+
+    <div class="panel survivor-panel" id="survivorPanel">
+      <div class="panel-head">
+        <h2>Survivor</h2>
+        <button class="capture-btn" data-kind="survivor">Capture</button>
+      </div>
+      <div class="panel-body" id="survivorBody">
+        <p class="empty-state">No pick captured for this week yet.</p>
+      </div>
+    </div>
+
+    <div class="panel tdtracker-panel">
+      <div class="panel-head">
+        <h2>TD Tracker</h2>
+        <span class="panel-tag" id="tdTotalTag">0 total</span>
+      </div>
+      <div class="panel-body tdtracker-body" id="tdTrackerBody">
+        <div class="td-window">
+          <span class="td-window-label">Morning</span>
+          <span class="td-window-count" id="tdMorning">0</span>
+        </div>
+        <div class="td-window">
+          <span class="td-window-label">Afternoon</span>
+          <span class="td-window-count" id="tdAfternoon">0</span>
+        </div>
+        <div class="td-window">
+          <span class="td-window-label">Night</span>
+          <span class="td-window-count" id="tdNight">0</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- Expanded fantasy box overlay -->
+<div class="expand-overlay" id="expandOverlay"></div>
+
+<!-- Capture modal -->
+<div class="modal-overlay" id="captureModal">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="captureModalTitle">Capture</h3>
+      <button class="modal-close" id="captureModalClose">&times;</button>
+    </div>
+    <div class="modal-body">
+      <input type="file" id="capturePhotoInput" accept="image/*" capture="environment" />
+      <div id="captureStatus" class="capture-status"></div>
+      <div id="captureReview" class="capture-review"></div>
+    </div>
+    <div class="modal-actions">
+      <button id="captureConfirmBtn" class="btn-primary" disabled>Confirm &amp; Save</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
