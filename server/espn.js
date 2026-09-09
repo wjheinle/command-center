@@ -26,6 +26,21 @@ const BROWSER_HEADERS = {
   Accept: 'application/json',
 };
 
+// ESPN's defaultPositionId numeric codes -> the position label Command
+// Center displays elsewhere (matches the labels used in Yahoo capture too).
+const POSITION_ID_MAP = {
+  1: 'QB',
+  2: 'RB',
+  3: 'WR',
+  4: 'TE',
+  5: 'K',
+  16: 'DEF',
+};
+
+// Lineup slot IDs (where the player is SLOTTED this week) — 20/21 are bench/IR,
+// everything else is a starting slot. Used to only show Bill's active starters.
+const BENCH_SLOT_IDS = new Set([20, 21]);
+
 function cookieHeader() {
   const s2 = process.env.ESPN_S2;
   const swid = process.env.ESPN_SWID;
@@ -39,7 +54,7 @@ function cookieHeader() {
 // ESPN's marketing homepage instead of returning API JSON (which then fails
 // to parse with a confusing "Unexpected end of JSON input" error).
 async function fetchLeague(leagueId) {
-  const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mScoreboard&view=mTeam&view=mRoster&view=mSettings`;
+  const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${SEASON}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mScoreboard&view=mTeam&view=mRoster&view=mSettings&view=mBoxscore&view=mLiveScoring`;
   const cookie = cookieHeader();
 
   const headers = { ...BROWSER_HEADERS };
@@ -62,6 +77,36 @@ async function fetchLeague(leagueId) {
 
   const data = await res.json();
   return normalizeLeague(leagueId, data);
+}
+
+// Extracts Bill's starting-lineup players (excludes bench/IR) with their
+// live fantasy points from one side of a matchup object (m.home or m.away),
+// when that side is Bill's team. mBoxscore/mLiveScoring views put the
+// roster snapshot at rosterForCurrentScoringPeriod.entries.
+function extractRosterPlayers(teamSide) {
+  const entries = teamSide?.rosterForCurrentScoringPeriod?.entries || [];
+
+  return entries
+    .filter(e => !BENCH_SLOT_IDS.has(e.lineupSlotId))
+    .map(e => {
+      const player = e.playerPoolEntry?.player || {};
+      const positionLabel = POSITION_ID_MAP[player.defaultPositionId] || null;
+
+      // appliedTotal on the live stats entry is the player's current live
+      // fantasy points for this scoring period; appliedTotal on the
+      // projection entry (statSourceId 1) is the pre-game projection.
+      const stats = player.stats || [];
+      const scoringPeriodId = teamSide.rosterForCurrentScoringPeriod?.scoringPeriodId;
+      const liveStat = stats.find(s => s.statSourceId === 0 && s.scoringPeriodId === scoringPeriodId);
+      const projStat = stats.find(s => s.statSourceId === 1 && s.scoringPeriodId === scoringPeriodId);
+
+      return {
+        playerName: player.fullName || 'Unknown Player',
+        position: positionLabel,
+        points: liveStat?.appliedTotal ?? null,
+        projection: projStat?.appliedTotal ?? null,
+      };
+    });
 }
 
 function normalizeLeague(leagueId, data) {
@@ -119,11 +164,31 @@ function normalizeLeague(leagueId, data) {
     };
   }) : [];
 
+  // Bill's own starting-lineup player detail (not the opponent's) — pulled
+  // from whichever side of the matchup matches his team ID. Wrapped in a
+  // try/catch: this is built against ESPN's documented-but-unofficial
+  // mBoxscore/mLiveScoring shape, which hasn't been verified against a real
+  // live response yet. If the shape is even slightly different than expected,
+  // this should degrade to an empty roster with a note rather than taking
+  // down the whole league fetch.
+  let myRoster = [];
+  let myRosterError = null;
+  if (myMatchup && myTeam) {
+    try {
+      const mySide = myMatchup.home?.teamId === myTeam.id ? myMatchup.home : myMatchup.away;
+      myRoster = extractRosterPlayers(mySide);
+    } catch (err) {
+      myRosterError = `Player roster extraction failed: ${err.message}`;
+    }
+  }
+
   return {
     leagueId,
     leagueName: data.settings?.name || `League ${leagueId}`,
     scoringPeriodId: currentPeriod,
     matchups,
+    myRoster,
+    myRosterError,
     myTeamFound: !!myTeam,
     fetchedAt: new Date().toISOString(),
   };
