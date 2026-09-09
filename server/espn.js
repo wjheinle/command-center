@@ -187,21 +187,32 @@ function normalizeLeague(leagueId, data) {
     ? periodMatchups.find(m => m.home?.teamId === myTeam.id || m.away?.teamId === myTeam.id)
     : periodMatchups[0]; // fallback if we don't know Bill's team name in this league
 
+  // ESPN assigns home/away arbitrarily per matchup — Bill might be the
+  // "home" side in one league and "away" in another. The totals need to
+  // consistently show HIS side first regardless, matching the player-roster
+  // ordering below (which was already built to always be his-side-first).
+  // Field names are "mine"/"opponent" rather than "home"/"away" specifically
+  // so this orientation can't silently drift back to ESPN's raw labeling.
   const matchups = myMatchup ? [myMatchup].map(m => {
     const home = m.home || {};
     const away = m.away || {};
+    const homeIsMine = myTeam ? home.teamId === myTeam.id : true; // default orientation if we don't know Bill's team
+
+    const homeSide = {
+      teamId: home.teamId,
+      teamName: teamsById[home.teamId]?.name || `Team ${home.teamId}`,
+      score: home.totalPoints ?? home.pointsByScoringPeriod?.[currentPeriod] ?? null,
+    };
+    const awaySide = away.teamId != null ? {
+      teamId: away.teamId,
+      teamName: teamsById[away.teamId]?.name || `Team ${away.teamId}`,
+      score: away.totalPoints ?? away.pointsByScoringPeriod?.[currentPeriod] ?? null,
+    } : null;
+
     return {
       matchupId: m.id,
-      home: {
-        teamId: home.teamId,
-        teamName: teamsById[home.teamId]?.name || `Team ${home.teamId}`,
-        score: home.totalPoints ?? home.pointsByScoringPeriod?.[currentPeriod] ?? null,
-      },
-      away: away.teamId != null ? {
-        teamId: away.teamId,
-        teamName: teamsById[away.teamId]?.name || `Team ${away.teamId}`,
-        score: away.totalPoints ?? away.pointsByScoringPeriod?.[currentPeriod] ?? null,
-      } : null,
+      mine: homeIsMine ? homeSide : awaySide,
+      opponent: homeIsMine ? awaySide : homeSide,
     };
   }) : [];
 
