@@ -22,6 +22,7 @@ app.use(express.static(path.join(__dirname, '..', 'public')));
 // ---------- Tracking toggle ----------
 
 app.get('/api/tracking', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.json(tracking.getState());
 });
 
@@ -92,6 +93,13 @@ async function buildSnapshot() {
 }
 
 app.get('/api/snapshot', async (req, res) => {
+  // This endpoint must never be cached — a 304 here means the browser (or an
+  // intermediate proxy) serves a stale snapshot instead of live data, which
+  // silently breaks the whole "live" premise of the app.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+
   if (!tracking.isTrackingOn()) {
     return res.json(lastSnapshot || { fetchedAt: null, note: 'Tracking is off and no snapshot exists yet.' });
   }
