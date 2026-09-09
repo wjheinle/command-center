@@ -28,6 +28,8 @@ const BROWSER_HEADERS = {
 
 // ESPN's defaultPositionId numeric codes -> the position label Command
 // Center displays elsewhere (matches the labels used in Yahoo capture too).
+// This is the player's NATURAL position, independent of where they're
+// slotted in the lineup this week.
 const POSITION_ID_MAP = {
   1: 'QB',
   2: 'RB',
@@ -37,8 +39,26 @@ const POSITION_ID_MAP = {
   16: 'DEF',
 };
 
-// Lineup slot IDs (where the player is SLOTTED this week) — 20/21 are bench/IR,
-// everything else is a starting slot. Used to only show Bill's active starters.
+// ESPN's lineupSlotId — where a player is SLOTTED in the lineup this week
+// (distinct from defaultPositionId above). Verified against multiple
+// independent ESPN API client projects (cwendt94/espn-api, ffscrapr, others).
+const LINEUP_SLOT_MAP = {
+  0: 'QB',
+  2: 'RB',
+  4: 'WR',
+  6: 'TE',
+  16: 'DEF',
+  17: 'K',
+  20: 'BENCH',
+  21: 'IR',
+  23: 'FLEX',
+};
+
+// Standard fantasy lineup display order — QB, RBs, WRs, TE, FLEX, DEF, K.
+// Used to sort starters into the order Bill actually expects to see them,
+// rather than whatever order ESPN's roster array happens to list them in.
+const LINEUP_SLOT_SORT_ORDER = [0, 2, 4, 6, 23, 16, 17];
+
 const BENCH_SLOT_IDS = new Set([20, 21]);
 
 function cookieHeader() {
@@ -83,30 +103,45 @@ async function fetchLeague(leagueId) {
 // live fantasy points from one side of a matchup object (m.home or m.away),
 // when that side is Bill's team. mBoxscore/mLiveScoring views put the
 // roster snapshot at rosterForCurrentScoringPeriod.entries.
+//
+// Sorted into standard lineup display order (QB, RB, RB, WR, WR, WR, TE,
+// FLEX, DEF, K) using lineupSlotId — NOT the order ESPN's array happens to
+// list players in, which has no guaranteed ordering.
 function extractRosterPlayers(teamSide) {
   const entries = teamSide?.rosterForCurrentScoringPeriod?.entries || [];
+  const scoringPeriodId = teamSide.rosterForCurrentScoringPeriod?.scoringPeriodId;
 
-  return entries
-    .filter(e => !BENCH_SLOT_IDS.has(e.lineupSlotId))
-    .map(e => {
-      const player = e.playerPoolEntry?.player || {};
-      const positionLabel = POSITION_ID_MAP[player.defaultPositionId] || null;
+  const starters = entries.filter(e => !BENCH_SLOT_IDS.has(e.lineupSlotId));
 
-      // appliedTotal on the live stats entry is the player's current live
-      // fantasy points for this scoring period; appliedTotal on the
-      // projection entry (statSourceId 1) is the pre-game projection.
-      const stats = player.stats || [];
-      const scoringPeriodId = teamSide.rosterForCurrentScoringPeriod?.scoringPeriodId;
-      const liveStat = stats.find(s => s.statSourceId === 0 && s.scoringPeriodId === scoringPeriodId);
-      const projStat = stats.find(s => s.statSourceId === 1 && s.scoringPeriodId === scoringPeriodId);
+  starters.sort((a, b) => {
+    const orderA = LINEUP_SLOT_SORT_ORDER.indexOf(a.lineupSlotId);
+    const orderB = LINEUP_SLOT_SORT_ORDER.indexOf(b.lineupSlotId);
+    // Unknown slot IDs (not in our sort list) sink to the bottom rather
+    // than accidentally sorting to the top via indexOf's -1.
+    return (orderA === -1 ? 999 : orderA) - (orderB === -1 ? 999 : orderB);
+  });
 
-      return {
-        playerName: player.fullName || 'Unknown Player',
-        position: positionLabel,
-        points: liveStat?.appliedTotal ?? null,
-        projection: projStat?.appliedTotal ?? null,
-      };
-    });
+  return starters.map(e => {
+    const player = e.playerPoolEntry?.player || {};
+    // Prefer the lineup SLOT label (so a RB started at FLEX shows "FLEX",
+    // matching what Bill sees on ESPN's own site) and fall back to the
+    // player's natural position if the slot ID is somehow unrecognized.
+    const positionLabel = LINEUP_SLOT_MAP[e.lineupSlotId] || POSITION_ID_MAP[player.defaultPositionId] || null;
+
+    // appliedTotal on the live stats entry is the player's current live
+    // fantasy points for this scoring period; appliedTotal on the
+    // projection entry (statSourceId 1) is the pre-game projection.
+    const stats = player.stats || [];
+    const liveStat = stats.find(s => s.statSourceId === 0 && s.scoringPeriodId === scoringPeriodId);
+    const projStat = stats.find(s => s.statSourceId === 1 && s.scoringPeriodId === scoringPeriodId);
+
+    return {
+      playerName: player.fullName || 'Unknown Player',
+      position: positionLabel,
+      points: liveStat?.appliedTotal ?? null,
+      projection: projStat?.appliedTotal ?? null,
+    };
+  });
 }
 
 function normalizeLeague(leagueId, data) {
