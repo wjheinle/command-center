@@ -167,12 +167,18 @@ function normalizeLeague(leagueId, data) {
   // that's what the myTeamFound flag and "name not matched" UI tag are for.
   const normalizeTeamName = (s) => s.trim().toLowerCase().replace(/\s+/g, ' ');
 
-  const myTeamNames = (process.env.ESPN_TEAM_NAMES || '')
-    .split(',')
-    .map(normalizeTeamName)
-    .filter(Boolean);
+  // ESPN_TEAM_NAMES holds one name PER LEAGUE, in the same order as
+  // ESPN_LEAGUE_IDS. Look up only the name meant for THIS league by
+  // position — never check against the full combined list, which risked
+  // one league's fetch accidentally matching a team name meant for a
+  // different league.
+  const leagueIndex = LEAGUE_IDS.indexOf(String(leagueId));
+  const allTeamNames = (process.env.ESPN_TEAM_NAMES || '').split(',').map(s => s.trim());
+  const myTeamNameForThisLeague = leagueIndex >= 0 ? allTeamNames[leagueIndex] : null;
 
-  const myTeam = Object.values(teamsById).find(t => myTeamNames.includes(normalizeTeamName(t.name)));
+  const myTeam = myTeamNameForThisLeague
+    ? Object.values(teamsById).find(t => normalizeTeamName(t.name) === normalizeTeamName(myTeamNameForThisLeague))
+    : undefined;
 
   const periodMatchups = (data.schedule || [])
     .filter(m => m.matchupPeriodId === data.status?.currentMatchupPeriod);

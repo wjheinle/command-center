@@ -246,6 +246,12 @@ app.post('/api/yahoo-manual-adjustments', (req, res) => {
   res.json(updated);
 });
 
+app.post('/api/yahoo-manual-adjustments/reset', (req, res) => {
+  const { week } = req.body;
+  const updated = yahooScoring.resetAllAdjustments(week ?? null);
+  res.json(updated);
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Command Center running on port ${PORT}`);

@@ -250,6 +250,22 @@ function getManualAdjustments(currentWeek) {
   return flat;
 }
 
+// Clears every override for the given week in one action — the "reset all"
+// control. Entries from OTHER weeks are left untouched (they wouldn't be
+// applying anyway per getManualAdjustments' filtering, but there's no
+// reason to destroy that history just because this week is being reset).
+function resetAllAdjustments(week) {
+  const stored = readJSON('yahooManualAdjustmentsByWeek', {});
+  const remaining = {};
+  Object.entries(stored).forEach(([playerName, entry]) => {
+    if (week != null && entry.week != null && entry.week !== week) {
+      remaining[playerName] = entry;
+    }
+  });
+  writeJSON('yahooManualAdjustmentsByWeek', remaining);
+  return getManualAdjustments(week);
+}
+
 module.exports = {
   getScoringSettings,
   computeLiveRosterScore,
@@ -257,4 +273,5 @@ module.exports = {
   computeRosterScore,
   setManualAdjustment,
   getManualAdjustments,
+  resetAllAdjustments,
 };
