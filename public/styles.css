@@ -185,6 +185,17 @@ html, body {
   border-radius: 9px;
 }
 
+.fantasy-box-head-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.box-capture-btn {
+  font-size: 10px;
+  padding: 3px 10px;
+}
+
 .fantasy-box-total {
   display: flex;
   justify-content: space-between;
@@ -412,6 +423,13 @@ html, body {
   height: 5px;
   border-radius: 50%;
   margin-top: 2px;
+}
+
+.pick-cell .pick-confidence {
+  font-size: 10px;
+  font-weight: 700;
+  opacity: 0.75;
+  margin-top: 1px;
 }
 
 .pick-cell.status-pending { background: var(--panel-raised); color: var(--text-dim); }

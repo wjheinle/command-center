@@ -84,7 +84,7 @@ function normalizeEspnLeague(league) {
   return {
     id: `espn-${league.leagueId}`,
     title: league.leagueName || 'League',
-    tag: null,
+    tag: league.myTeamFound === false ? 'name not matched' : null,
     error: league.error || null,
     totals: m ? {
       home: { label: m.home?.teamName, total: m.home?.score },
@@ -119,6 +119,7 @@ function normalizeYahoo(yahoo) {
     id: 'yahoo',
     title: 'Red Hawk (Yahoo)', // full team name is too long for the box header — shown in full in the totals row instead
     tag: 'estimate',
+    captureKind: 'yahooRoster',
     error: null,
     totals: {
       home: { label: 'Who Drank All the Bitch Pops', total: myTotal },
@@ -175,7 +176,13 @@ function renderFantasyBox(box, expanded) {
 
   const head = document.createElement('div');
   head.className = 'fantasy-box-head';
-  head.innerHTML = `<h2>${escapeHtml(box.title)}</h2>${box.tag ? `<span class="fantasy-box-tag">${escapeHtml(box.tag)}</span>` : ''}`;
+  head.innerHTML = `
+    <h2>${escapeHtml(box.title)}</h2>
+    <span class="fantasy-box-head-right">
+      ${box.tag ? `<span class="fantasy-box-tag">${escapeHtml(box.tag)}</span>` : ''}
+      ${box.captureKind ? `<button class="capture-btn box-capture-btn" data-kind="${escapeHtml(box.captureKind)}">Capture</button>` : ''}
+    </span>
+  `;
   el.appendChild(head);
 
   if (box.error) {
@@ -230,10 +237,15 @@ function renderFantasyBox(box, expanded) {
   }
 
   el.addEventListener('click', (e) => {
-    // Don't trigger expand/collapse when tapping the adjust button itself.
+    // Don't trigger expand/collapse when tapping the adjust or capture buttons.
     if (e.target.classList.contains('adjust-btn')) {
       e.stopPropagation();
       openAdjustPrompt(e.target.dataset.player, e.target.dataset.current);
+      return;
+    }
+    if (e.target.classList.contains('box-capture-btn')) {
+      e.stopPropagation();
+      openCaptureModal(e.target.dataset.kind);
       return;
     }
     toggleExpand(box.id);
@@ -291,7 +303,7 @@ function renderPickem(pickem) {
     cell.className = `pick-cell status-${p.status || 'pending'}`;
     cell.innerHTML = `
       <span class="pick-team">${escapeHtml(p.pickedTeam || '')}</span>
-      <span class="pick-status-dot"></span>
+      ${p.confidence != null ? `<span class="pick-confidence">${escapeHtml(String(p.confidence))}</span>` : '<span class="pick-status-dot"></span>'}
     `;
     body.appendChild(cell);
   });
