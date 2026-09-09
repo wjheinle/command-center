@@ -81,19 +81,24 @@ function renderSnapshot(snapshot) {
 
 function normalizeEspnLeague(league) {
   const m = (league.matchups || [])[0];
+  const players = (league.myRoster || []).map(p => ({
+    playerName: p.playerName,
+    position: p.position,
+    points: p.points,
+    note: null,
+  }));
+
   return {
     id: `espn-${league.leagueId}`,
     title: league.leagueName || 'League',
     tag: league.myTeamFound === false ? 'name not matched' : null,
-    error: league.error || null,
+    error: league.error || null, // a full league-fetch failure — blocks the whole box
+    playerDetailNote: league.myRosterError || null, // partial failure — matchup score still shows, just no player breakdown
     totals: m ? {
       home: { label: m.home?.teamName, total: m.home?.score },
       away: m.away ? { label: m.away.teamName, total: m.away.score } : null,
     } : null,
-    // ESPN roster-level player scoring isn't pulled in the current matchup
-    // view (would need the mRoster player breakdown per team) — shown as a
-    // simple matchup box for now, players list intentionally empty.
-    players: [],
+    players,
   };
 }
 
@@ -216,7 +221,9 @@ function renderFantasyBox(box, expanded) {
 
     const playersBody = document.createElement('div');
     playersBody.className = 'fantasy-box-players';
-    if (!box.players || !box.players.length) {
+    if (box.playerDetailNote) {
+      playersBody.innerHTML = `<p class="empty-state">Player detail unavailable: ${escapeHtml(box.playerDetailNote)}</p>`;
+    } else if (!box.players || !box.players.length) {
       playersBody.innerHTML = `<p class="empty-state">No player detail yet.</p>`;
     } else {
       box.players.forEach(p => {
