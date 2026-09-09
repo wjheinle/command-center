@@ -88,12 +88,19 @@ function normalizeLeague(leagueId, data) {
 }
 
 async function fetchAllLeagues() {
+  if (!LEAGUE_IDS.length) {
+    console.warn('[espn] ESPN_LEAGUE_IDS is empty — no leagues to fetch.');
+    return [];
+  }
+
   const results = [];
   for (const id of LEAGUE_IDS) {
     try {
       const league = await fetchLeague(id);
+      console.log(`[espn] Fetched league ${id}: ${league.leagueName} (${league.matchups?.length || 0} matchups)`);
       results.push(league);
     } catch (err) {
+      console.error(`[espn] League ${id} fetch failed: ${err.message}`);
       results.push({ leagueId: id, error: err.message });
     }
   }

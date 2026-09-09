@@ -40,10 +40,29 @@ app.post('/api/tracking', (req, res) => {
 let lastSnapshot = readJSON('lastSnapshot', null);
 
 async function buildSnapshot() {
-  const [espnLeagues, { games, summaries }] = await Promise.all([
-    espn.fetchAllLeagues(),
-    nflScores.fetchAllLiveGameSummaries(),
-  ]);
+  // Each data source is fetched independently so one failing (e.g. ESPN
+  // rate-limiting, a cookie expiring, a network hiccup) doesn't silently
+  // degrade the WHOLE snapshot back to stale cached data. Every section
+  // gets its own try/catch and surfaces its own error instead.
+
+  let espnLeagues = [];
+  let espnLeaguesError = null;
+  try {
+    espnLeagues = await espn.fetchAllLeagues();
+  } catch (err) {
+    espnLeaguesError = err.message;
+  }
+
+  let games = [];
+  let summaries = [];
+  let gameDataError = null;
+  try {
+    const result = await nflScores.fetchAllLiveGameSummaries();
+    games = result.games;
+    summaries = result.summaries;
+  } catch (err) {
+    gameDataError = err.message;
+  }
 
   const pickem1Week = readJSON('pickem1Picks', null);
   const pickem2Week = readJSON('pickem2Picks', null);
@@ -80,7 +99,9 @@ async function buildSnapshot() {
   return {
     fetchedAt: new Date().toISOString(),
     espnLeagues,
+    espnLeaguesError,
     games,
+    gameDataError,
     pickem1: gradedPickem1,
     pickem2: gradedPickem2,
     survivor: gradedSurvivor,
@@ -104,14 +125,22 @@ app.get('/api/snapshot', async (req, res) => {
     return res.json(lastSnapshot || { fetchedAt: null, note: 'Tracking is off and no snapshot exists yet.' });
   }
 
+  // buildSnapshot() no longer throws for individual data-source failures —
+  // those are captured inline as *Error fields. This catch is now only for
+  // a genuinely unexpected crash (e.g. a bug in grading logic), and even
+  // then we surface the error rather than silently serving stale data with
+  // no indication anything is wrong.
   try {
     const snapshot = await buildSnapshot();
     lastSnapshot = snapshot;
     writeJSON('lastSnapshot', snapshot);
     res.json(snapshot);
   } catch (err) {
-    // If a live fetch fails, fall back to last known snapshot rather than erroring the UI.
-    res.json(lastSnapshot || { fetchedAt: null, error: err.message });
+    res.json({
+      ...(lastSnapshot || {}),
+      fetchedAt: lastSnapshot?.fetchedAt || null,
+      snapshotBuildError: err.message,
+    });
   }
 });
 
