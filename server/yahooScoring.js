@@ -205,10 +205,10 @@ function computeRosterScore(roster, playerStatIndex, settings, manualAdjustments
   };
 }
 
-async function computeLiveRosterScore(roster, summaries) {
+async function computeLiveRosterScore(roster, summaries, currentWeek) {
   const settings = getScoringSettings();
   const playerStatIndex = playerStatIndexFromSummaries(summaries);
-  const manualAdjustments = readJSON('yahooManualAdjustments', {});
+  const manualAdjustments = getManualAdjustments(currentWeek);
   return computeRosterScore(roster, playerStatIndex, settings, manualAdjustments);
 }
 
@@ -216,23 +216,38 @@ async function computeLiveRosterScore(roster, summaries) {
 // scoring rules, same live ESPN stats, same manual-override store (a
 // manual adjustment is keyed by player name, so it applies correctly
 // whichever roster that player happens to be on).
-async function computeLiveOpponentScore(opponentRoster, summaries) {
-  return computeLiveRosterScore(opponentRoster, summaries);
+async function computeLiveOpponentScore(opponentRoster, summaries, currentWeek) {
+  return computeLiveRosterScore(opponentRoster, summaries, currentWeek);
 }
 
-function setManualAdjustment(playerName, points) {
-  const current = readJSON('yahooManualAdjustments', {});
+// Adjustments are tagged with the week they were set. A kicker's actual
+// made-FG distances are specific to that week's game — an override set in
+// Week 2 should never silently keep applying in Week 3.
+function setManualAdjustment(playerName, points, week) {
+  const current = readJSON('yahooManualAdjustmentsByWeek', {});
   if (points == null) {
-    delete current[playerName];
+    if (current[playerName]) delete current[playerName];
   } else {
-    current[playerName] = points;
+    current[playerName] = { points, week: week ?? null };
   }
-  writeJSON('yahooManualAdjustments', current);
-  return current;
+  writeJSON('yahooManualAdjustmentsByWeek', current);
+  return getManualAdjustments(week);
 }
 
-function getManualAdjustments() {
-  return readJSON('yahooManualAdjustments', {});
+// Returns a flat { playerName: points } map for scoring — but ONLY the
+// entries that match currentWeek. Same conservative-when-unknown rule as
+// the weekly pick/roster reset: if currentWeek isn't known, keep every
+// stored override rather than guessing wrong and silently dropping a valid
+// one, or applying a stale one, without any visibility into which happened.
+function getManualAdjustments(currentWeek) {
+  const stored = readJSON('yahooManualAdjustmentsByWeek', {});
+  const flat = {};
+  Object.entries(stored).forEach(([playerName, entry]) => {
+    if (currentWeek == null || entry.week == null || entry.week === currentWeek) {
+      flat[playerName] = entry.points;
+    }
+  });
+  return flat;
 }
 
 module.exports = {

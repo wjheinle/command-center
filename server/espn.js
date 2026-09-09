@@ -199,19 +199,23 @@ function normalizeLeague(leagueId, data) {
     };
   }) : [];
 
-  // Bill's own starting-lineup player detail (not the opponent's) — pulled
-  // from whichever side of the matchup matches his team ID. Wrapped in a
-  // try/catch: this is built against ESPN's documented-but-unofficial
-  // mBoxscore/mLiveScoring shape, which hasn't been verified against a real
-  // live response yet. If the shape is even slightly different than expected,
-  // this should degrade to an empty roster with a note rather than taking
-  // down the whole league fetch.
+  // Bill's own starting-lineup player detail, AND his opponent's — pulled
+  // from whichever side of the matchup matches his team ID (his side) vs
+  // the other side (opponent). Wrapped in a try/catch: this is built
+  // against ESPN's documented-but-unofficial mBoxscore/mLiveScoring shape,
+  // which hasn't been verified against a real live response yet. If the
+  // shape is even slightly different than expected, this should degrade to
+  // an empty roster with a note rather than taking down the whole league fetch.
   let myRoster = [];
+  let opponentRoster = [];
   let myRosterError = null;
   if (myMatchup && myTeam) {
     try {
-      const mySide = myMatchup.home?.teamId === myTeam.id ? myMatchup.home : myMatchup.away;
+      const isHome = myMatchup.home?.teamId === myTeam.id;
+      const mySide = isHome ? myMatchup.home : myMatchup.away;
+      const oppSide = isHome ? myMatchup.away : myMatchup.home;
       myRoster = extractRosterPlayers(mySide);
+      opponentRoster = extractRosterPlayers(oppSide);
     } catch (err) {
       myRosterError = `Player roster extraction failed: ${err.message}`;
     }
@@ -223,6 +227,7 @@ function normalizeLeague(leagueId, data) {
     scoringPeriodId: currentPeriod,
     matchups,
     myRoster,
+    opponentRoster,
     myRosterError,
     myTeamFound: !!myTeam,
     fetchedAt: new Date().toISOString(),

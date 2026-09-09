@@ -39,6 +39,21 @@ app.post('/api/tracking', (req, res) => {
 
 let lastSnapshot = readJSON('lastSnapshot', null);
 
+// Returns the stored weekly data as-is if it matches the current NFL week,
+// or null (treated as "not captured yet") if it's from a prior week —
+// automatic weekly reset without deleting anything, so the underlying file
+// on disk is untouched if this guess ever needs to be revisited.
+//
+// Deliberately conservative: if we don't know the current week (ESPN fetch
+// failed) or the stored data has no week number at all (an older capture,
+// or the vision extraction couldn't read one), we keep showing it rather
+// than risk wiping real data over an ambiguous comparison.
+function currentIfMatchingWeek(storedData, currentWeek) {
+  if (!storedData) return null;
+  if (currentWeek == null || storedData.week == null) return storedData;
+  return storedData.week === currentWeek ? storedData : null;
+}
+
 async function buildSnapshot() {
   // Each data source is fetched independently so one failing (e.g. ESPN
   // rate-limiting, a cookie expiring, a network hiccup) doesn't silently
@@ -64,10 +79,18 @@ async function buildSnapshot() {
     gameDataError = err.message;
   }
 
-  const pickem1Week = readJSON('pickem1Picks', null);
-  const pickem2Week = readJSON('pickem2Picks', null);
-  const survivorWeek = readJSON('survivorPick', null);
-  const yahooRosterWeek = readJSON('yahooRoster', null);
+  // ESPN's own scoringPeriodId is the ground truth for "what week is it
+  // right now" — use it to detect and clear stale captures from a prior
+  // week automatically, rather than showing last week's picks/roster under
+  // this week's frame. Falls back gracefully if ESPN data isn't available
+  // (e.g. during the caching bugs of past weeks — better to keep showing
+  // old data than to wipe everything on an unrelated fetch failure).
+  const currentWeek = espnLeagues.find(l => l.scoringPeriodId != null)?.scoringPeriodId ?? null;
+
+  const pickem1Week = currentIfMatchingWeek(readJSON('pickem1Picks', null), currentWeek);
+  const pickem2Week = currentIfMatchingWeek(readJSON('pickem2Picks', null), currentWeek);
+  const survivorWeek = currentIfMatchingWeek(readJSON('survivorPick', null), currentWeek);
+  const yahooRosterWeek = currentIfMatchingWeek(readJSON('yahooRoster', null), currentWeek);
 
   const gradePool = (poolWeek) => poolWeek
     ? { ...poolWeek, picks: gradePicks.gradePickemWeek(poolWeek.picks, games) }
@@ -83,7 +106,7 @@ async function buildSnapshot() {
   let yahooScore = null;
   if (yahooRosterWeek?.roster?.length) {
     try {
-      yahooScore = await yahooScoring.computeLiveRosterScore(yahooRosterWeek.roster, summaries);
+      yahooScore = await yahooScoring.computeLiveRosterScore(yahooRosterWeek.roster, summaries, currentWeek);
     } catch (err) {
       yahooScore = { total: null, players: [], note: `Error computing Yahoo score: ${err.message}` };
     }
@@ -92,7 +115,7 @@ async function buildSnapshot() {
   let yahooOpponentScore = null;
   if (yahooRosterWeek?.opponentRoster?.length) {
     try {
-      yahooOpponentScore = await yahooScoring.computeLiveOpponentScore(yahooRosterWeek.opponentRoster, summaries);
+      yahooOpponentScore = await yahooScoring.computeLiveOpponentScore(yahooRosterWeek.opponentRoster, summaries, currentWeek);
     } catch (err) {
       yahooOpponentScore = { total: null, players: [], note: `Error computing opponent score: ${err.message}` };
     }
@@ -107,6 +130,7 @@ async function buildSnapshot() {
 
   return {
     fetchedAt: new Date().toISOString(),
+    currentWeek,
     espnLeagues,
     espnLeaguesError,
     games,
@@ -207,15 +231,18 @@ app.post('/api/yahoo-settings', (req, res) => {
 });
 
 // ---------- Manual scoring overrides (kicker distance, D/ST, anything auto-scoring gets wrong) ----------
+// Tagged by NFL week — an override set in one week never silently carries
+// over and applies to a different week's game.
 
 app.get('/api/yahoo-manual-adjustments', (req, res) => {
-  res.json(yahooScoring.getManualAdjustments());
+  const week = req.query.week ? parseInt(req.query.week, 10) : null;
+  res.json(yahooScoring.getManualAdjustments(week));
 });
 
 app.post('/api/yahoo-manual-adjustments', (req, res) => {
-  const { playerName, points } = req.body;
+  const { playerName, points, week } = req.body;
   if (!playerName) return res.status(400).json({ error: 'playerName is required.' });
-  const updated = yahooScoring.setManualAdjustment(playerName, points === '' ? null : points);
+  const updated = yahooScoring.setManualAdjustment(playerName, points === '' ? null : points, week ?? null);
   res.json(updated);
 });
 
