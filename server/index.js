@@ -89,6 +89,15 @@ async function buildSnapshot() {
     }
   }
 
+  let yahooOpponentScore = null;
+  if (yahooRosterWeek?.opponentRoster?.length) {
+    try {
+      yahooOpponentScore = await yahooScoring.computeLiveOpponentScore(yahooRosterWeek.opponentRoster, summaries);
+    } catch (err) {
+      yahooOpponentScore = { total: null, players: [], note: `Error computing opponent score: ${err.message}` };
+    }
+  }
+
   let td = null;
   try {
     td = tdWindows.computeTdWindowsFromSummaries(games, summaries);
@@ -108,6 +117,7 @@ async function buildSnapshot() {
     yahoo: {
       roster: yahooRosterWeek,
       score: yahooScore,
+      opponentScore: yahooOpponentScore,
     },
     td,
   };

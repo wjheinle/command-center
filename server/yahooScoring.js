@@ -212,6 +212,14 @@ async function computeLiveRosterScore(roster, summaries) {
   return computeRosterScore(roster, playerStatIndex, settings, manualAdjustments);
 }
 
+// Scores the opponent's roster the exact same way as Bill's own — same
+// scoring rules, same live ESPN stats, same manual-override store (a
+// manual adjustment is keyed by player name, so it applies correctly
+// whichever roster that player happens to be on).
+async function computeLiveOpponentScore(opponentRoster, summaries) {
+  return computeLiveRosterScore(opponentRoster, summaries);
+}
+
 function setManualAdjustment(playerName, points) {
   const current = readJSON('yahooManualAdjustments', {});
   if (points == null) {
@@ -230,6 +238,7 @@ function getManualAdjustments() {
 module.exports = {
   getScoringSettings,
   computeLiveRosterScore,
+  computeLiveOpponentScore,
   computeRosterScore,
   setManualAdjustment,
   getManualAdjustments,

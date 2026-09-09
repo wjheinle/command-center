@@ -47,7 +47,7 @@ CRITICAL: Respond with ONLY the raw JSON object below — no introductory senten
 
     yahooRoster: `This is a screenshot of a Yahoo Fantasy Football weekly matchup page. It shows two teams side by side, each with their starting roster listed by position (QB, RB, WR, TE, a flex slot often labeled W/R/T, K, DEF), plus a projection number and a live "Fan Pts" number (which may show "-" if the games haven't started yet) for each player.
 
-Bill's team is named "${YAHOO_TEAM_NAME}" — identify which side of the page is his team by matching that name (it may be truncated or wrapped visually, but match it as closely as shown). Extract his starting roster and the opponent's team name.
+Bill's team is named "${YAHOO_TEAM_NAME}" — identify which side of the page is his team by matching that name (it may be truncated or wrapped visually, but match it as closely as shown). Extract BOTH rosters: his own starting lineup, and his opponent's starting lineup (the other team on the page), plus the opponent's team name.
 
 CRITICAL: Respond with ONLY the raw JSON object below — no introductory sentence, no explanation, no markdown code fences. Your entire response must start with { and end with }.
 {
@@ -55,9 +55,12 @@ CRITICAL: Respond with ONLY the raw JSON object below — no introductory senten
   "opponentTeamName": "<the other team's name as shown, or null>",
   "roster": [
     { "playerName": "<name as shown>", "position": "<position slot label as shown, e.g. QB, RB, WR, TE, W/R/T, K, DEF>", "nflTeam": "<team abbrev if visible, else null>", "projection": <number or null>, "livePoints": <number if a real value is shown, null if it shows "-" or is blank> }
+  ],
+  "opponentRoster": [
+    { "playerName": "<name as shown>", "position": "<position slot label as shown, e.g. QB, RB, WR, TE, W/R/T, K, DEF>", "nflTeam": "<team abbrev if visible, else null>", "projection": <number or null>, "livePoints": <number if a real value is shown, null if it shows "-" or is blank> }
   ]
 }
-Only include Bill's own roster (the side matching his team name), not the opponent's players.`,
+"roster" is Bill's own lineup (the side matching his team name). "opponentRoster" is the OTHER side of the page — same fields, same format. Both are required.`,
   };
 }
 
