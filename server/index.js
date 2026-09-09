@@ -153,10 +153,10 @@ app.post('/api/capture/:kind', upload.single('photo'), async (req, res) => {
   try {
     const base64 = req.file.buffer.toString('base64');
     const mediaType = req.file.mimetype || 'image/jpeg';
-    // Both pick'em pools use the same extraction prompt — 'pickem1'/'pickem2'
-    // are just which pool's picks get stored where; the photo itself looks identical.
-    const visionKind = (kind === 'pickem1' || kind === 'pickem2') ? 'pickem' : kind;
-    const extracted = await vision.extractFromImage(base64, mediaType, visionKind);
+    // Pool 1 (Prevent Defense) is a confidence pool, Pool 2 (Sunday Funday)
+    // is straight pick'em — each needs its own extraction prompt since
+    // what to look for on the screen genuinely differs between them.
+    const extracted = await vision.extractFromImage(base64, mediaType, kind);
 
     const storeKey = captureStoreKey(kind);
     if (!storeKey) return res.status(400).json({ error: `Unknown capture kind: ${kind}` });

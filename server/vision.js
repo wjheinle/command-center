@@ -13,15 +13,29 @@ const YAHOO_TEAM_NAME = process.env.YAHOO_TEAM_NAME || 'Who Drank All the Bitch 
 
 function buildPrompts() {
   return {
-    pickem: `This is a screenshot of a Yahoo Pick'em pool grid for one NFL week. Extract every game and the pick made.
+    pickem1: `This is a screenshot of a Yahoo confidence pick'em pool grid for one NFL week. This is a CONFIDENCE pool — each pick has a confidence point value assigned by the user (typically ranking games from most to least confident, e.g. if there are 16 games, confidence values run 1-16 with no repeats), usually shown as a number near or below the picked team.
+
+Extract every game, the pick made, and its confidence point value.
 Return ONLY valid JSON, no markdown fences, no preamble, in this exact shape:
 {
   "week": <number or null if not visible>,
   "picks": [
-    { "awayTeam": "<abbrev or name as shown>", "homeTeam": "<abbrev or name as shown>", "pickedTeam": "<team the user picked>", "confidence": <number if a confidence-pool value is shown, else null> }
+    { "awayTeam": "<abbrev or name as shown>", "homeTeam": "<abbrev or name as shown>", "pickedTeam": "<team the user picked>", "confidence": <the confidence point value assigned to this pick, as a number — this is required for a confidence pool, so look carefully; use null only if truly not visible> }
   ]
 }
 If you cannot read a field confidently, use null for that field rather than guessing.`,
+
+    pickem2: `This is a screenshot of a Yahoo Pick'em pool grid for one NFL week. This is a STRAIGHT pick'em pool — there is no confidence point ranking, just a winner picked for each game.
+
+Extract every game and the pick made.
+Return ONLY valid JSON, no markdown fences, no preamble, in this exact shape:
+{
+  "week": <number or null if not visible>,
+  "picks": [
+    { "awayTeam": "<abbrev or name as shown>", "homeTeam": "<abbrev or name as shown>", "pickedTeam": "<team the user picked>", "confidence": null }
+  ]
+}
+Always set confidence to null — this pool has no confidence points. If you cannot read a field confidently, use null for that field rather than guessing.`,
 
     survivor: `This is a screenshot showing a Survivor pool pick for one NFL week — the user has selected one team they believe will win.
 Return ONLY valid JSON, no markdown fences, no preamble, in this exact shape:
