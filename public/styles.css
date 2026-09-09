@@ -185,6 +185,16 @@ html, body {
   border-radius: 9px;
 }
 
+.reset-adjust-btn {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  padding: 2px 9px;
+  border-radius: 9px;
+  cursor: pointer;
+}
+
 .fantasy-box-head-right {
   display: flex;
   align-items: center;

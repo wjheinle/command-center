@@ -240,7 +240,7 @@ function renderFantasyBox(box, expanded) {
   head.innerHTML = `
     <h2>${escapeHtml(box.title)}</h2>
     <span class="fantasy-box-head-right">
-      ${box.tag ? `<span class="fantasy-box-tag">${escapeHtml(box.tag)}</span>` : ''}
+      ${box.allowManualAdjust ? `<button class="reset-adjust-btn">Reset All</button>` : (box.tag ? `<span class="fantasy-box-tag">${escapeHtml(box.tag)}</span>` : '')}
       ${box.captureKind ? `<button class="capture-btn box-capture-btn" data-kind="${escapeHtml(box.captureKind)}">Capture</button>` : ''}
     </span>
   `;
@@ -284,13 +284,11 @@ function renderFantasyBox(box, expanded) {
     } else {
       box.players.forEach(p => {
         const row = document.createElement('div');
-        // Manual override only makes sense where auto-scoring is a known
-        // weak spot — that's Yahoo's reconstructed scoring (kicker distance,
-        // DEF not fully wired), NOT the ESPN boxes, where K/DEF points come
-        // straight from ESPN's own correctly-computed API and are already
-        // accurate. Gate on the box supporting adjustments at all, not just
-        // on position.
-        const needsAdjust = box.allowManualAdjust && (p.position === 'K' || p.position === 'DEF' || p.position === 'D/ST' || p.note);
+        // Manual override only makes sense for kicker distance and D/ST —
+        // Yahoo's two known-weak reconstructed scoring spots. A player
+        // simply showing a pre-game projection note is not itself a reason
+        // to offer an override.
+        const needsAdjust = box.allowManualAdjust && (p.position === 'K' || p.position === 'DEF' || p.position === 'D/ST');
 
         if (box.showOpponentColumn) {
           row.className = 'player-row player-row-vs';
@@ -318,7 +316,7 @@ function renderFantasyBox(box, expanded) {
   }
 
   el.addEventListener('click', (e) => {
-    // Don't trigger expand/collapse when tapping the adjust or capture buttons.
+    // Don't trigger expand/collapse when tapping the adjust, capture, or reset buttons.
     if (e.target.classList.contains('adjust-btn')) {
       e.stopPropagation();
       openAdjustPrompt(e.target.dataset.player, e.target.dataset.current);
@@ -327,6 +325,11 @@ function renderFantasyBox(box, expanded) {
     if (e.target.classList.contains('box-capture-btn')) {
       e.stopPropagation();
       openCaptureModal(e.target.dataset.kind);
+      return;
+    }
+    if (e.target.classList.contains('reset-adjust-btn')) {
+      e.stopPropagation();
+      resetAllAdjustments();
       return;
     }
     toggleExpand(box.id);
@@ -477,6 +480,18 @@ async function openAdjustPrompt(playerName, currentValue) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ playerName, points, week }),
+  });
+  fetchSnapshot();
+}
+
+async function resetAllAdjustments() {
+  if (!window.confirm('Clear all manual overrides for this week?')) return;
+
+  const week = lastSnapshotData?.currentWeek ?? null;
+  await fetch('/api/yahoo-manual-adjustments/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ week }),
   });
   fetchSnapshot();
 }
