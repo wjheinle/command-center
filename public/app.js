@@ -134,18 +134,12 @@ function normalizeYahoo(yahoo) {
   const myTotal = score?.total;
   const opponentTotal = opponentScore?.total;
 
-  // Fall back to showing captured projections before kickoff, when the live
-  // scoring engine has nothing yet — better than every player reading "—"
-  // all Sunday morning.
+  // Show a plain dash until real live scoring exists — no projection
+  // fallback. Bill wants the tile to visibly read "nothing live yet"
+  // rather than a projected number that could be mistaken for a real one.
   const players = score?.players?.length
-    ? score.players.map(p => {
-        if (p.points != null) return p;
-        const captured = roster.find(r => r.playerName === p.playerName);
-        return captured?.projection != null
-          ? { ...p, points: captured.projection, note: (p.note ? p.note + ' ' : '') + '(showing projection — game not live yet)' }
-          : p;
-      })
-    : roster.map(r => ({ playerName: r.playerName, position: r.position, points: r.projection ?? null, note: r.projection != null ? '(projection)' : null }));
+    ? score.players
+    : roster.map(r => ({ playerName: r.playerName, position: r.position, points: null, note: null }));
 
   // Same position-slot pairing approach as the ESPN boxes: match Bill's
   // opponent's player in the same slot to each of Bill's own rows. The
@@ -154,12 +148,8 @@ function normalizeYahoo(yahoo) {
   // doesn't match exactly — falls back to a dash for that row rather than
   // guessing at a pairing.
   const opponentPlayers = opponentScore?.players?.length
-    ? opponentScore.players.map(p => {
-        if (p.points != null) return p;
-        const captured = opponentRoster.find(r => r.playerName === p.playerName);
-        return captured?.projection != null ? { ...p, points: captured.projection } : p;
-      })
-    : opponentRoster.map(r => ({ playerName: r.playerName, position: r.position, points: r.projection ?? null }));
+    ? opponentScore.players
+    : opponentRoster.map(r => ({ playerName: r.playerName, position: r.position, points: null }));
 
   const opponentByPositionQueue = {};
   opponentPlayers.forEach(p => {
@@ -300,7 +290,7 @@ function renderFantasyBox(box, expanded) {
             <span class="player-name">${escapeHtml(p.playerName)}</span>
             <span class="player-pos-center">${escapeHtml(p.position || '')}</span>
             <span class="player-name opponent-name">${p.opponentPlayerName ? escapeHtml(p.opponentPlayerName) : '—'}</span>
-            <span class="player-pts">${p.opponentPoints != null ? p.opponentPoints : '—'}</span>
+            <span class="player-pts">${p.opponentPoints != null ? p.opponentPoints : '—'}${needsAdjust && p.opponentPlayerName ? `<button class="adjust-btn" data-player="${escapeHtml(p.opponentPlayerName)}" data-current="${p.opponentPoints != null ? p.opponentPoints : ''}">adjust</button>` : ''}</span>
           `;
         } else {
           row.className = 'player-row';

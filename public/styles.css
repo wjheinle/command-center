@@ -190,7 +190,7 @@ html, body {
   color: var(--text-dim);
   background: var(--panel-raised);
   border: 1px solid var(--line);
-  padding: 2px 9px;
+  padding: 3px 10px;
   border-radius: 9px;
   cursor: pointer;
 }
@@ -201,7 +201,11 @@ html, body {
   gap: 8px;
 }
 
-.box-capture-btn {
+/* Higher specificity than .capture-btn (which is defined later in this
+   file) so this compact sizing actually wins the cascade — a plain
+   .box-capture-btn rule was silently losing to the later .capture-btn
+   rule despite equal specificity, since source order was the tiebreaker. */
+button.box-capture-btn.capture-btn {
   font-size: 10px;
   padding: 3px 10px;
 }
