@@ -20,7 +20,7 @@ tickClock();
 const trackingBtn = document.getElementById('trackingBtn');
 
 async function fetchTrackingState() {
-  const res = await fetch('/api/tracking');
+  const res = await fetch('/api/tracking', { cache: 'no-store' });
   const state = await res.json();
   applyTrackingState(state.on);
 }
@@ -57,7 +57,7 @@ function stopPolling() {
 
 async function fetchSnapshot() {
   try {
-    const res = await fetch('/api/snapshot');
+    const res = await fetch('/api/snapshot', { cache: 'no-store' });
     const snapshot = await res.json();
     renderSnapshot(snapshot);
   } catch (err) {
