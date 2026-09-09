@@ -106,6 +106,7 @@ function normalizeYahoo(yahoo) {
   const roster = yahoo?.roster?.roster || [];
   const score = yahoo?.score;
   const myTotal = score?.total;
+  const opponentTotal = yahoo?.opponentScore?.total;
 
   // Fall back to showing captured projections before kickoff, when the live
   // scoring engine has nothing yet — better than every player reading "—"
@@ -125,10 +126,11 @@ function normalizeYahoo(yahoo) {
     title: 'Red Hawk (Yahoo)', // full team name is too long for the box header — shown in full in the totals row instead
     tag: 'estimate',
     captureKind: 'yahooRoster',
+    allowManualAdjust: true, // Yahoo scoring is a reconstructed estimate — K distance and DEF are known-weak, unlike ESPN's own native scoring
     error: null,
     totals: {
       home: { label: 'Who Drank All the Bitch Pops', total: myTotal },
-      away: yahoo?.roster?.opponentTeamName ? { label: yahoo.roster.opponentTeamName, total: null } : null,
+      away: yahoo?.roster?.opponentTeamName ? { label: yahoo.roster.opponentTeamName, total: opponentTotal ?? null } : null,
     },
     players,
   };
@@ -229,7 +231,13 @@ function renderFantasyBox(box, expanded) {
       box.players.forEach(p => {
         const row = document.createElement('div');
         row.className = 'player-row';
-        const needsAdjust = p.position === 'K' || p.position === 'DEF' || p.position === 'D/ST' || p.note;
+        // Manual override only makes sense where auto-scoring is a known
+        // weak spot — that's Yahoo's reconstructed scoring (kicker distance,
+        // DEF not fully wired), NOT the ESPN boxes, where K/DEF points come
+        // straight from ESPN's own correctly-computed API and are already
+        // accurate. Gate on the box supporting adjustments at all, not just
+        // on position.
+        const needsAdjust = box.allowManualAdjust && (p.position === 'K' || p.position === 'DEF' || p.position === 'D/ST' || p.note);
         row.innerHTML = `
           <span class="player-name">${escapeHtml(p.playerName)} <span class="player-pos">${escapeHtml(p.position || '')}</span></span>
           <span style="display:flex; align-items:center;">
