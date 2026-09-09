@@ -278,17 +278,32 @@ html, body {
    the mockup layout. */
 .player-row-vs {
   display: grid !important;
-  grid-template-columns: 28px 1fr 1fr 28px;
+  grid-template-columns: 24px 1fr 40px 1fr 24px;
   gap: 6px;
   align-items: center;
 }
 
 .player-row-vs .player-pts {
   text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.player-row-vs .adjust-btn {
+  font-size: 8px;
+  padding: 1px 5px;
 }
 
 .player-row-vs .player-name {
   max-width: none;
+}
+
+.player-row-vs .player-pos-center {
+  text-align: center;
+  color: var(--text-dim);
+  font-size: 10px;
 }
 
 .player-row-vs .opponent-name {

@@ -125,9 +125,11 @@ function normalizeEspnLeague(league) {
 
 function normalizeYahoo(yahoo) {
   const roster = yahoo?.roster?.roster || [];
+  const opponentRoster = yahoo?.roster?.opponentRoster || [];
   const score = yahoo?.score;
+  const opponentScore = yahoo?.opponentScore;
   const myTotal = score?.total;
-  const opponentTotal = yahoo?.opponentScore?.total;
+  const opponentTotal = opponentScore?.total;
 
   // Fall back to showing captured projections before kickoff, when the live
   // scoring engine has nothing yet — better than every player reading "—"
@@ -142,18 +144,49 @@ function normalizeYahoo(yahoo) {
       })
     : roster.map(r => ({ playerName: r.playerName, position: r.position, points: r.projection ?? null, note: r.projection != null ? '(projection)' : null }));
 
+  // Same position-slot pairing approach as the ESPN boxes: match Bill's
+  // opponent's player in the same slot to each of Bill's own rows. The
+  // opponent roster is photo-captured (not guaranteed identical position
+  // label formatting), so this may leave some rows unpaired if a label
+  // doesn't match exactly — falls back to a dash for that row rather than
+  // guessing at a pairing.
+  const opponentPlayers = opponentScore?.players?.length
+    ? opponentScore.players.map(p => {
+        if (p.points != null) return p;
+        const captured = opponentRoster.find(r => r.playerName === p.playerName);
+        return captured?.projection != null ? { ...p, points: captured.projection } : p;
+      })
+    : opponentRoster.map(r => ({ playerName: r.playerName, position: r.position, points: r.projection ?? null }));
+
+  const opponentByPositionQueue = {};
+  opponentPlayers.forEach(p => {
+    const key = p.position || 'UNKNOWN';
+    (opponentByPositionQueue[key] = opponentByPositionQueue[key] || []).push(p);
+  });
+
+  const pairedPlayers = players.map(p => {
+    const key = p.position || 'UNKNOWN';
+    const opp = (opponentByPositionQueue[key] || []).shift() || null;
+    return {
+      ...p,
+      opponentPlayerName: opp?.playerName || null,
+      opponentPoints: opp?.points ?? null,
+    };
+  });
+
   return {
     id: 'yahoo',
     title: 'Red Hawk (Yahoo)', // full team name is too long for the box header — shown in full in the totals row instead
     tag: 'estimate',
     captureKind: 'yahooRoster',
     allowManualAdjust: true, // Yahoo scoring is a reconstructed estimate — K distance and DEF are known-weak, unlike ESPN's own native scoring
+    showOpponentColumn: opponentRoster.length > 0, // only if the opponent's roster was actually captured
     error: null,
     totals: {
       home: { label: 'Who Drank All the Bitch Pops', total: myTotal },
       away: yahoo?.roster?.opponentTeamName ? { label: yahoo.roster.opponentTeamName, total: opponentTotal ?? null } : null,
     },
-    players,
+    players: pairedPlayers,
   };
 }
 
@@ -262,8 +295,9 @@ function renderFantasyBox(box, expanded) {
         if (box.showOpponentColumn) {
           row.className = 'player-row player-row-vs';
           row.innerHTML = `
-            <span class="player-pts">${p.points != null ? p.points : '—'}</span>
-            <span class="player-name">${escapeHtml(p.playerName)} <span class="player-pos">${escapeHtml(p.position || '')}</span></span>
+            <span class="player-pts">${p.points != null ? p.points : '—'}${needsAdjust ? `<button class="adjust-btn" data-player="${escapeHtml(p.playerName)}" data-current="${p.points != null ? p.points : ''}">adjust</button>` : ''}</span>
+            <span class="player-name">${escapeHtml(p.playerName)}</span>
+            <span class="player-pos-center">${escapeHtml(p.position || '')}</span>
             <span class="player-name opponent-name">${p.opponentPlayerName ? escapeHtml(p.opponentPlayerName) : '—'}</span>
             <span class="player-pts">${p.opponentPoints != null ? p.opponentPoints : '—'}</span>
           `;
