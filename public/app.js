@@ -68,7 +68,7 @@ async function fetchSnapshot() {
 function renderSnapshot(snapshot) {
   if (!snapshot) return;
   lastSnapshotData = snapshot;
-  renderFantasyGrid(snapshot.espnLeagues || [], snapshot.yahoo);
+  renderFantasyGrid(snapshot.espnLeagues || [], snapshot.yahoo, snapshot.espnLeaguesError);
   renderPickem(activePickemPool === 1 ? snapshot.pickem1 : snapshot.pickem2);
   renderSurvivor(snapshot.survivor);
   renderTdTracker(snapshot.td);
@@ -128,11 +128,31 @@ function normalizeYahoo(yahoo) {
   };
 }
 
-function renderFantasyGrid(espnLeagues, yahoo) {
-  const boxes = [
-    ...espnLeagues.map(normalizeEspnLeague),
-    normalizeYahoo(yahoo),
-  ];
+function renderFantasyGrid(espnLeagues, yahoo, espnLeaguesError) {
+  let boxes;
+
+  if (espnLeaguesError) {
+    // A real fetch error occurred — show one visible error box instead of
+    // silently rendering nothing, so this is never invisible again.
+    boxes = [
+      { id: 'espn-error', title: 'ESPN Leagues', tag: null, error: espnLeaguesError, totals: null, players: [] },
+      normalizeYahoo(yahoo),
+    ];
+  } else if (!espnLeagues.length) {
+    // No error thrown, but also no leagues came back — most likely
+    // ESPN_LEAGUE_IDS is empty/misconfigured. Show a placeholder rather
+    // than just leaving three grid cells blank with no explanation.
+    boxes = [
+      { id: 'espn-empty', title: 'ESPN Leagues', tag: null, error: 'No leagues configured or returned — check ESPN_LEAGUE_IDS.', totals: null, players: [] },
+      normalizeYahoo(yahoo),
+    ];
+  } else {
+    boxes = [
+      ...espnLeagues.map(normalizeEspnLeague),
+      normalizeYahoo(yahoo),
+    ];
+  }
+
   lastRenderedFantasyBoxes = boxes;
 
   const container = document.getElementById('fantasyGrid');
