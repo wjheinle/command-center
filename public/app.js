@@ -115,9 +115,12 @@ function normalizeEspnLeague(league) {
     error: league.error || null, // a full league-fetch failure — blocks the whole box
     playerDetailNote: league.myRosterError || null, // partial failure — matchup score still shows, just no player breakdown
     showOpponentColumn: true,
+    // ESPN assigns home/away arbitrarily — ESPN's own backend now normalizes
+    // this to "mine"/"opponent" so Bill's side is always shown on the left,
+    // matching the player rows below (which were always his-side-first).
     totals: m ? {
-      home: { label: m.home?.teamName, total: m.home?.score },
-      away: m.away ? { label: m.away.teamName, total: m.away.score } : null,
+      home: { label: m.mine?.teamName, total: m.mine?.score },
+      away: m.opponent ? { label: m.opponent.teamName, total: m.opponent.score } : null,
     } : null,
     players,
   };
