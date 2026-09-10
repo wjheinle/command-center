@@ -272,6 +272,10 @@ app.get('/api/_test-api-football', async (req, res) => {
     let url;
     if (endpoint === 'leagues') {
       url = `https://v1.american-football.api-sports.io/leagues`;
+    } else if (endpoint === 'playerstats') {
+      url = `https://v1.american-football.api-sports.io/games/statistics/players?id=${req.query.gameId}`;
+    } else if (endpoint === 'events') {
+      url = `https://v1.american-football.api-sports.io/games/events?id=${req.query.gameId}`;
     } else if (live) {
       url = `https://v1.american-football.api-sports.io/games?live=${live}`;
     } else if (league && season) {
