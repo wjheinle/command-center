@@ -271,7 +271,7 @@ app.get('/api/_test-api-football', async (req, res) => {
     const fetch = require('node-fetch');
     let url;
     if (endpoint === 'leagues') {
-      url = `https://v1.american-football.api-sports.io/leagues${req.query.search ? `?search=${req.query.search}` : ''}`;
+      url = `https://v1.american-football.api-sports.io/leagues`;
     } else if (live) {
       url = `https://v1.american-football.api-sports.io/games?live=${live}`;
     } else if (league && season) {
