@@ -24,6 +24,17 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+// Confirmed live on opening night 2026: ESPN's site.api.espn.com endpoint
+// returns a persistent 403 to Railway's outbound IP specifically (retries
+// don't help — it's not intermittent rate-limiting), while the exact same
+// request succeeds fine from other networks. allorigins.win is a public
+// CORS/fetch proxy — routing through it means the FINAL request to ESPN
+// comes from allorigins' IP, not Railway's, which sidesteps whatever list
+// Railway's IP is on. This is a fallback of last resort: a free third-party
+// service with no uptime guarantee, so it's only used AFTER a direct
+// attempt fails, never as the primary path.
+const PROXY_FALLBACK_PREFIX = 'https://api.allorigins.win/raw?url=';
+
 async function fetchWithRetry(url, options, attempts = 3) {
   let lastError;
   for (let i = 0; i < attempts; i++) {
@@ -41,7 +52,19 @@ async function fetchWithRetry(url, options, attempts = 3) {
     }
     if (i < attempts - 1) await sleep(500 * (i + 1)); // 500ms, then 1000ms
   }
-  throw lastError;
+
+  // Direct attempts exhausted — try once through the proxy before giving up
+  // entirely. No retry loop here; if the proxy itself is down or slow,
+  // failing fast and falling back to the last-known snapshot (handled
+  // upstream in index.js) is better than compounding two unreliable paths.
+  try {
+    const proxyUrl = PROXY_FALLBACK_PREFIX + encodeURIComponent(url);
+    const res = await fetch(proxyUrl, { headers: options?.headers });
+    if (res.ok) return res;
+    throw new Error(`proxy fallback also failed: ${res.status} ${res.statusText}`);
+  } catch (proxyErr) {
+    throw new Error(`${lastError.message} (direct, after retries); proxy fallback also failed: ${proxyErr.message}`);
+  }
 }
 
 async function fetchScoreboard() {
