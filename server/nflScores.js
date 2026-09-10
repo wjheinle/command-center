@@ -89,36 +89,49 @@ async function apiFootballFetch(path) {
 
 // ---------- Public interface (same shape as the old ESPN version) ----------
 
-// Live + finished NFL games for today. Originally used live=all alone,
-// which is correct while a game is in progress but returns an EMPTY
-// result the moment the game ends (confirmed live tonight: TD Tracker and
-// pick'em grading both reset to blank right when the Patriots/Seahawks
-// game finished) — live=all only ever shows what's live RIGHT NOW, not
-// "today's games including ones that just ended."
-//
-// Fixed by querying today's date explicitly instead, WITH league+season
-// specified. The original date-only evaluation test (before league/season
-// were known) returned zero results — likely because without an explicit
-// league, the query scoped to something other than NFL by default. With
-// league=1 (confirmed NFL) and season=2026 set, date scoping should work
-// as documented ("add date to narrow a league+season query to one day").
-function todayDateString() {
-  // NFL games can run past midnight UTC (e.g. an 8:20pm ET kickoff is
-  // already the next UTC day for part of the game) — American-football
-  // "today" is Eastern-time today, not UTC today. Rather than pull in a
-  // timezone library for one conversion, approximate ET as UTC-4/UTC-5 by
-  // subtracting 5 hours before taking the date, which keeps late-night
-  // primetime games correctly attributed to the evening they actually
-  // started rather than rolling to the next calendar day.
-  const etApprox = new Date(Date.now() - 5 * 60 * 60 * 1000);
-  return etApprox.toISOString().slice(0, 10);
-}
+// Live NFL games right now, merged with the last-known state of any game
+// that has since finished. Two things confirmed via live testing tonight:
+//   1. live=all works correctly on the free tier and returns real current
+//      data (verified: Smith-Njigba's live points, 2 real touchdowns).
+//   2. A date-scoped query (league+season+date) is what actually hit the
+//      free-tier restriction ("Free plans do not have access to this
+//      season") — NOT live=all itself. Bill correctly caught that I'd
+//      misdiagnosed which query was actually blocked; live=all remains
+//      the right primary source.
+// The real problem live=all has is structural, not a plan restriction:
+// it only ever returns games CURRENTLY in progress, so a game that just
+// finished silently disappears from the response (and from TD Tracker /
+// pick'em grading) the moment it ends. Fixed here by caching each game's
+// last-seen state and merging it back in when live=all stops returning
+// that game — the cache is what survives the game ending, not a
+// different (blocked) query.
 
 async function fetchScoreboard() {
   try {
-    const date = todayDateString();
-    const data = await apiFootballFetch(`/games?league=${NFL_LEAGUE_ID}&season=${CURRENT_SEASON}&date=${date}`);
-    return normalizeGames(data.response || []);
+    const data = await apiFootballFetch(`/games?live=all`);
+    const liveGames = normalizeGames(data.response || []);
+
+    const cache = readJSON('lastKnownGames', {});
+    const now = new Date().toISOString();
+
+    // Update the cache with whatever's live right now.
+    liveGames.forEach(g => { cache[g.gameId] = { ...g, cachedAt: now }; });
+
+    // Any cached game finished on ESPN's actual clock (kickoff was today
+    // or later, meaning it's not from a stale prior week) but missing from
+    // the live response is treated as finished — merge it back in with
+    // state forced to 'post' so it doesn't just vanish from TD Tracker/
+    // pick'em the instant it drops out of live=all.
+    const liveIds = new Set(liveGames.map(g => g.gameId));
+    const merged = [...liveGames];
+    Object.values(cache).forEach(g => {
+      if (!liveIds.has(g.gameId)) {
+        merged.push({ ...g, state: 'post' });
+      }
+    });
+
+    writeJSON('lastKnownGames', cache);
+    return merged;
   } catch (err) {
     throw new Error(`NFL scoreboard fetch failed: ${err.message}`);
   }
