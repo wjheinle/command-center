@@ -285,6 +285,26 @@ app.post('/api/refresh-nfl-data', async (req, res) => {
   }
 });
 
+// ---------- TEMPORARY: inspect raw /games/events for TD field-name verification ----------
+// extractTouchdowns in nflScores.js was a best guess at API-Football's
+// event shape — confirmed wrong tonight (2 real TDs, TD Tracker showed 0).
+// This dumps the raw response so we can see the actual field names before
+// fixing the real extraction logic. Remove once fixed.
+app.get('/api/_test-events', async (req, res) => {
+  const key = process.env.API_FOOTBALL_KEY;
+  if (!key) return res.status(400).json({ error: 'Set API_FOOTBALL_KEY first.' });
+  try {
+    const fetch = require('node-fetch');
+    const response = await fetch(`https://v1.american-football.api-sports.io/games/events?id=${req.query.gameId}`, {
+      headers: { 'x-apisports-key': key },
+    });
+    const data = await response.json();
+    res.json({ status: response.status, data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Command Center running on port ${PORT}`);
