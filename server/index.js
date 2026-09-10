@@ -252,6 +252,28 @@ app.post('/api/yahoo-manual-adjustments/reset', (req, res) => {
   res.json(updated);
 });
 
+// ---------- TEMPORARY: API-Football evaluation route ----------
+// One-off diagnostic to see a real response shape from api-sports.io's
+// NFL API, since it can't be tested from the dev sandbox (network policy
+// blocks the domain there). Remove this route once the evaluation is done
+// — it's not part of the app's real feature set.
+app.get('/api/_test-api-football', async (req, res) => {
+  const key = process.env.API_FOOTBALL_KEY;
+  if (!key) return res.status(400).json({ error: 'Set API_FOOTBALL_KEY in Railway variables first.' });
+
+  const date = req.query.date || new Date().toISOString().slice(0, 10);
+  try {
+    const fetch = require('node-fetch');
+    const response = await fetch(`https://v1.american-football.api-sports.io/games?date=${date}`, {
+      headers: { 'x-apisports-key': key },
+    });
+    const data = await response.json();
+    res.json({ status: response.status, data });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Command Center running on port ${PORT}`);
