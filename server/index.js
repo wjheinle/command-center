@@ -261,14 +261,28 @@ app.get('/api/_test-api-football', async (req, res) => {
   const key = process.env.API_FOOTBALL_KEY;
   if (!key) return res.status(400).json({ error: 'Set API_FOOTBALL_KEY in Railway variables first.' });
 
+  const endpoint = req.query.endpoint || 'games'; // e.g. ?endpoint=leagues to look up NFL's league ID
   const date = req.query.date || new Date().toISOString().slice(0, 10);
+  const live = req.query.live; // pass ?live=all to test the live-games query instead of date
+  const league = req.query.league; // pass once we know NFL's league ID
+  const season = req.query.season;
+
   try {
     const fetch = require('node-fetch');
-    const response = await fetch(`https://v1.american-football.api-sports.io/games?date=${date}`, {
-      headers: { 'x-apisports-key': key },
-    });
+    let url;
+    if (endpoint === 'leagues') {
+      url = `https://v1.american-football.api-sports.io/leagues${req.query.search ? `?search=${req.query.search}` : ''}`;
+    } else if (live) {
+      url = `https://v1.american-football.api-sports.io/games?live=${live}`;
+    } else if (league && season) {
+      url = `https://v1.american-football.api-sports.io/games?league=${league}&season=${season}&date=${date}`;
+    } else {
+      url = `https://v1.american-football.api-sports.io/games?date=${date}`;
+    }
+
+    const response = await fetch(url, { headers: { 'x-apisports-key': key } });
     const data = await response.json();
-    res.json({ status: response.status, data });
+    res.json({ status: response.status, queriedUrl: url, data });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
