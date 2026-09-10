@@ -11,12 +11,34 @@
 
 const { readJSON, writeJSON } = require('./store');
 
+// Player names need to match exactly between three independent sources:
+// Yahoo's own display (whatever Bill's screenshot shows), Claude's vision
+// OCR of that screenshot, and ESPN's box score athlete.displayName. These
+// don't always agree character-for-character even for the same real
+// player (suffix formatting, punctuation, extra whitespace), so both sides
+// of the lookup are normalized the same way before comparing — this is
+// NOT fuzzy/approximate matching (which risks matching the wrong player);
+// it only strips formatting differences that are safe to treat as identical.
+function normalizePlayerName(name) {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .replace(/[.']/g, '')              // "A.J." -> "aj", "Ja'Marr" -> "jamarr"
+    .replace(/\s+(jr|sr|ii|iii|iv|v)\.?$/i, '') // strip trailing suffixes
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
 // Builds the name -> box score lookup from a set of already-fetched game
 // summaries (shared with the TD window tracker — see nflScores.fetchAllLiveGameSummaries).
+// Keyed by NORMALIZED name so lookups tolerate the formatting differences
+// described above.
 function playerStatIndexFromSummaries(summaries) {
   const index = {};
   summaries.forEach(({ summary }) => {
-    Object.assign(index, summary.players);
+    Object.entries(summary.players || {}).forEach(([name, stats]) => {
+      index[normalizePlayerName(name)] = stats;
+    });
   });
   return index;
 }
@@ -155,7 +177,7 @@ function scorePlayer(playerName, position, playerStatIndex, settings, manualAdju
     };
   }
 
-  const rawLine = playerStatIndex[playerName];
+  const rawLine = playerStatIndex[normalizePlayerName(playerName)];
   if (!rawLine) return { playerName, position, points: null, note: null };
 
   if (position === 'K') {
