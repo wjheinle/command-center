@@ -131,9 +131,20 @@ function extractRosterPlayers(teamSide) {
     // appliedTotal on the live stats entry is the player's current live
     // fantasy points for this scoring period; appliedTotal on the
     // projection entry (statSourceId 1) is the pre-game projection.
+    //
+    // CONFIRMED BUG (found via live data during Bill's Wed night test):
+    // the live-stat entry (statSourceId 0) does not reliably carry the same
+    // scoringPeriodId as the projection entry — for Jadarian Price's real
+    // live entry, requiring both statSourceId===0 AND a matching
+    // scoringPeriodId caused .find() to return undefined even though a
+    // perfectly good live entry (appliedTotal: 7.8, matching his real 52
+    // rush yards + 1 catch) existed in the array. statSourceId alone is
+    // sufficient to distinguish live (0) from projected (1) — dropped the
+    // scoringPeriodId condition entirely rather than guess at what the
+    // "correct" period value should have been.
     const stats = player.stats || [];
-    const liveStat = stats.find(s => s.statSourceId === 0 && s.scoringPeriodId === scoringPeriodId);
-    const projStat = stats.find(s => s.statSourceId === 1 && s.scoringPeriodId === scoringPeriodId);
+    const liveStat = stats.find(s => s.statSourceId === 0);
+    const projStat = stats.find(s => s.statSourceId === 1);
 
     return {
       playerName: player.fullName || 'Unknown Player',
