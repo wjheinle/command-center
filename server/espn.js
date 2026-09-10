@@ -204,36 +204,10 @@ function normalizeLeague(leagueId, data) {
   // ordering below (which was already built to always be his-side-first).
   // Field names are "mine"/"opponent" rather than "home"/"away" specifically
   // so this orientation can't silently drift back to ESPN's raw labeling.
-  const matchups = myMatchup ? [myMatchup].map(m => {
-    const home = m.home || {};
-    const away = m.away || {};
-    const homeIsMine = myTeam ? home.teamId === myTeam.id : true; // default orientation if we don't know Bill's team
-
-    const homeSide = {
-      teamId: home.teamId,
-      teamName: teamsById[home.teamId]?.name || `Team ${home.teamId}`,
-      score: home.totalPoints ?? home.pointsByScoringPeriod?.[currentPeriod] ?? null,
-    };
-    const awaySide = away.teamId != null ? {
-      teamId: away.teamId,
-      teamName: teamsById[away.teamId]?.name || `Team ${away.teamId}`,
-      score: away.totalPoints ?? away.pointsByScoringPeriod?.[currentPeriod] ?? null,
-    } : null;
-
-    return {
-      matchupId: m.id,
-      mine: homeIsMine ? homeSide : awaySide,
-      opponent: homeIsMine ? awaySide : homeSide,
-    };
-  }) : [];
-
   // Bill's own starting-lineup player detail, AND his opponent's — pulled
   // from whichever side of the matchup matches his team ID (his side) vs
   // the other side (opponent). Wrapped in a try/catch: this is built
-  // against ESPN's documented-but-unofficial mBoxscore/mLiveScoring shape,
-  // which hasn't been verified against a real live response yet. If the
-  // shape is even slightly different than expected, this should degrade to
-  // an empty roster with a note rather than taking down the whole league fetch.
+  // against ESPN's documented-but-unofficial mBoxscore/mLiveScoring shape.
   let myRoster = [];
   let opponentRoster = [];
   let myRosterError = null;
@@ -248,6 +222,50 @@ function normalizeLeague(leagueId, data) {
       myRosterError = `Player roster extraction failed: ${err.message}`;
     }
   }
+
+  // Sums a roster's live points as our own matchup total, rather than
+  // trusting ESPN's own totalPoints field on the matchup object. CONFIRMED
+  // via live testing tonight: totalPoints stayed at 0 for a matchup with
+  // real, live-scoring players (Jadarian Price genuinely had 7.8 points
+  // via his own appliedTotal) — likely because ESPN's totalPoints/
+  // pointsByScoringPeriod aggregate lags behind or is scoped to a
+  // different "current" period than the matchup's own matchupPeriodId.
+  // Summing the same per-player numbers we already display avoids
+  // depending on that separate, apparently-unreliable aggregate field.
+  function sumRosterPoints(roster) {
+    if (!roster.length) return null;
+    const known = roster.filter(p => p.points != null);
+    if (!known.length) return null;
+    return Math.round(known.reduce((sum, p) => sum + p.points, 0) * 100) / 100;
+  }
+
+  const matchups = myMatchup ? [myMatchup].map(m => {
+    const home = m.home || {};
+    const away = m.away || {};
+    const homeIsMine = myTeam ? home.teamId === myTeam.id : true; // default orientation if we don't know Bill's team
+
+    const myComputedTotal = sumRosterPoints(myRoster);
+    const opponentComputedTotal = sumRosterPoints(opponentRoster);
+
+    const homeSide = {
+      teamId: home.teamId,
+      teamName: teamsById[home.teamId]?.name || `Team ${home.teamId}`,
+      score: (homeIsMine ? myComputedTotal : opponentComputedTotal)
+        ?? home.totalPoints ?? home.pointsByScoringPeriod?.[currentPeriod] ?? null,
+    };
+    const awaySide = away.teamId != null ? {
+      teamId: away.teamId,
+      teamName: teamsById[away.teamId]?.name || `Team ${away.teamId}`,
+      score: (homeIsMine ? opponentComputedTotal : myComputedTotal)
+        ?? away.totalPoints ?? away.pointsByScoringPeriod?.[currentPeriod] ?? null,
+    } : null;
+
+    return {
+      matchupId: m.id,
+      mine: homeIsMine ? homeSide : awaySide,
+      opponent: homeIsMine ? awaySide : homeSide,
+    };
+  }) : [];
 
   return {
     leagueId,
