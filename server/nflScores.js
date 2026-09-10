@@ -222,24 +222,28 @@ function normalizePlayerStats(teamBlocks) {
   return players;
 }
 
-// API-Football's /games/events endpoint returns a play-by-play list;
-// touchdown-scoring plays are identified by the event `type`/`comment`
-// containing "TD" or "Touchdown" — the exact field naming wasn't fully
-// confirmed during evaluation (evaluation quota was limited), so this
-// errs toward checking multiple plausible fields rather than assuming one.
+// API-Football's /games/events endpoint — CONFIRMED shape from a real
+// touchdown tonight (2026 opening night, Patriots @ Seahawks):
+//   { quarter: "Fourth", minute: "11:28", team: {...}, player: {...},
+//     type: "TD", comment: "Jaxon Smith-Njigba 45 Yd pass from Drew Lock
+//     (Jason Myers Kick)", score: {...} }
+// type is an exact code ("TD", "FG", etc.), not free text — the original
+// text-search guess (looking for "touchdown" as a substring) never
+// matched this, which is why TD Tracker silently showed 0 despite 2 real
+// touchdowns. quarter is a WORD ("Second"/"Third"/"Fourth"), not a number
+// — mapped to a period number since gradePicks/tdWindows expect one.
+const QUARTER_TO_PERIOD = { First: 1, Second: 2, Third: 3, Fourth: 4, OT: 5, Overtime: 5 };
+
 function extractTouchdowns(events, gameId) {
   return events
-    .filter(e => {
-      const text = `${e.type || ''} ${e.comment || ''}`.toLowerCase();
-      return text.includes('touchdown') || text.includes(' td ') || text.endsWith(' td');
-    })
+    .filter(e => e.type === 'TD')
     .map(e => ({
       gameId,
-      playId: e.id ?? null,
+      playId: null, // API-Football events don't carry a stable per-event id
       team: e.team?.name || null,
-      text: e.comment || e.type || null,
-      period: e.quarter ?? null,
-      clock: e.time ?? null,
+      text: e.comment || null,
+      period: QUARTER_TO_PERIOD[e.quarter] ?? null,
+      clock: e.minute ?? null,
     }));
 }
 
