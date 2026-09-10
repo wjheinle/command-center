@@ -285,6 +285,33 @@ app.post('/api/refresh-nfl-data', async (req, res) => {
   }
 });
 
+// ---------- TEMPORARY: check ESPN's totalPoints field on a live matchup ----------
+app.get('/api/_test-espn-totals', async (req, res) => {
+  try {
+    const leagueId = req.query.leagueId || '184624';
+    const fetch = require('node-fetch');
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${process.env.ESPN_SEASON || '2026'}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mScoreboard&view=mLiveScoring`;
+    const cookie = `espn_s2=${process.env.ESPN_S2}; SWID=${process.env.ESPN_SWID};`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Cookie: cookie,
+      },
+    });
+    const data = await response.json();
+    // Just the matchup-level fields, not full rosters — small, focused response.
+    const matchups = (data.schedule || []).map(m => ({
+      id: m.id,
+      matchupPeriodId: m.matchupPeriodId,
+      home: m.home ? { teamId: m.home.teamId, totalPoints: m.home.totalPoints, pointsByScoringPeriod: m.home.pointsByScoringPeriod } : null,
+      away: m.away ? { teamId: m.away.teamId, totalPoints: m.away.totalPoints, pointsByScoringPeriod: m.away.pointsByScoringPeriod } : null,
+    }));
+    res.json({ status: response.status, currentMatchupPeriod: data.status?.currentMatchupPeriod, scoringPeriodId: data.scoringPeriodId, matchups });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Command Center running on port ${PORT}`);

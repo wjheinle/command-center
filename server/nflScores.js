@@ -89,16 +89,35 @@ async function apiFootballFetch(path) {
 
 // ---------- Public interface (same shape as the old ESPN version) ----------
 
-// Live NFL games right now. Uses live=all rather than a date query since
-// that's what actually returned real in-progress data during testing —
-// date-only queries returned empty results even for a known-live date,
-// for reasons not fully understood (likely a timezone/date-boundary quirk
-// in how API-Football scopes "today"). live=all sidesteps that ambiguity
-// entirely for the in-progress case, which is what Command Center needs
-// most; a completed-game catch-up path is handled separately if needed.
+// Live + finished NFL games for today. Originally used live=all alone,
+// which is correct while a game is in progress but returns an EMPTY
+// result the moment the game ends (confirmed live tonight: TD Tracker and
+// pick'em grading both reset to blank right when the Patriots/Seahawks
+// game finished) — live=all only ever shows what's live RIGHT NOW, not
+// "today's games including ones that just ended."
+//
+// Fixed by querying today's date explicitly instead, WITH league+season
+// specified. The original date-only evaluation test (before league/season
+// were known) returned zero results — likely because without an explicit
+// league, the query scoped to something other than NFL by default. With
+// league=1 (confirmed NFL) and season=2026 set, date scoping should work
+// as documented ("add date to narrow a league+season query to one day").
+function todayDateString() {
+  // NFL games can run past midnight UTC (e.g. an 8:20pm ET kickoff is
+  // already the next UTC day for part of the game) — American-football
+  // "today" is Eastern-time today, not UTC today. Rather than pull in a
+  // timezone library for one conversion, approximate ET as UTC-4/UTC-5 by
+  // subtracting 5 hours before taking the date, which keeps late-night
+  // primetime games correctly attributed to the evening they actually
+  // started rather than rolling to the next calendar day.
+  const etApprox = new Date(Date.now() - 5 * 60 * 60 * 1000);
+  return etApprox.toISOString().slice(0, 10);
+}
+
 async function fetchScoreboard() {
   try {
-    const data = await apiFootballFetch(`/games?live=all`);
+    const date = todayDateString();
+    const data = await apiFootballFetch(`/games?league=${NFL_LEAGUE_ID}&season=${CURRENT_SEASON}&date=${date}`);
     return normalizeGames(data.response || []);
   } catch (err) {
     throw new Error(`NFL scoreboard fetch failed: ${err.message}`);
