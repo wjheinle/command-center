@@ -285,6 +285,33 @@ app.post('/api/refresh-nfl-data', async (req, res) => {
   }
 });
 
+// ---------- TEMPORARY: raw ESPN league dump for live-scoring diagnosis ----------
+// Houston 2002 (and all 3 ESPN leagues) show every player as a plain dash
+// even for players confirmed live/scoring tonight (Jadarian Price) — the
+// mBoxscore/mLiveScoring shape this was built against was never verified
+// live. This dumps the raw fetch so we can see what ESPN actually returns
+// before guessing again. Remove once fixed.
+app.get('/api/_test-espn-raw', async (req, res) => {
+  try {
+    const leagueId = req.query.leagueId || '184624';
+    const fetch = require('node-fetch');
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${process.env.ESPN_SEASON || '2026'}/segments/0/leagues/${leagueId}?view=mMatchupScore&view=mScoreboard&view=mTeam&view=mRoster&view=mSettings&view=mBoxscore&view=mLiveScoring`;
+    const cookie = `espn_s2=${process.env.ESPN_S2}; SWID=${process.env.ESPN_SWID};`;
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        Cookie: cookie,
+      },
+    });
+    const data = await response.json();
+    // Just the schedule (matchups + rosters) — the full response is huge
+    // and mostly irrelevant to this specific question.
+    res.json({ status: response.status, schedule: data.schedule });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Command Center running on port ${PORT}`);
