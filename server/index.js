@@ -39,6 +39,15 @@ app.post('/api/tracking', (req, res) => {
 
 let lastSnapshot = readJSON('lastSnapshot', null);
 
+// Live NFL data (scores, box scores, TD windows) is now paid-API-Football
+// backed with a hard 100/day free-tier cap — this can NOT be fetched on
+// every /api/snapshot poll the way ESPN's free feed once was. It's cached
+// here and only refreshed when the user explicitly taps "Refresh Live
+// Data", via /api/refresh-nfl-data below. Every /api/snapshot call reuses
+// whatever's cached here (possibly stale) rather than triggering a new
+// API-Football request itself.
+let cachedNflData = readJSON('cachedNflData', { games: [], summaries: [], gameDataError: null, fetchedAt: null });
+
 // Returns the stored weekly data as-is if it matches the current NFL week,
 // or null (treated as "not captured yet") if it's from a prior week —
 // automatic weekly reset without deleting anything, so the underlying file
@@ -68,16 +77,11 @@ async function buildSnapshot() {
     espnLeaguesError = err.message;
   }
 
-  let games = [];
-  let summaries = [];
-  let gameDataError = null;
-  try {
-    const result = await nflScores.fetchAllLiveGameSummaries();
-    games = result.games;
-    summaries = result.summaries;
-  } catch (err) {
-    gameDataError = err.message;
-  }
+  // NFL scores/box-scores come from the cache, NOT a fresh fetch — see
+  // cachedNflData comment above. This is what "manual refresh" means in
+  // practice: /api/snapshot is cheap and pollable as before, but the NFL
+  // data inside it only changes when /api/refresh-nfl-data was called.
+  const { games, summaries, gameDataError } = cachedNflData;
 
   // ESPN's own scoringPeriodId is the ground truth for "what week is it
   // right now" — use it to detect and clear stale captures from a prior
@@ -130,6 +134,7 @@ async function buildSnapshot() {
 
   return {
     fetchedAt: new Date().toISOString(),
+    nflDataFetchedAt: cachedNflData.fetchedAt, // when the NFL data was last manually refreshed — lets the UI show "as of X"
     currentWeek,
     espnLeagues,
     espnLeaguesError,
@@ -252,43 +257,31 @@ app.post('/api/yahoo-manual-adjustments/reset', (req, res) => {
   res.json(updated);
 });
 
-// ---------- TEMPORARY: API-Football evaluation route ----------
-// One-off diagnostic to see a real response shape from api-sports.io's
-// NFL API, since it can't be tested from the dev sandbox (network policy
-// blocks the domain there). Remove this route once the evaluation is done
-// — it's not part of the app's real feature set.
-app.get('/api/_test-api-football', async (req, res) => {
-  const key = process.env.API_FOOTBALL_KEY;
-  if (!key) return res.status(400).json({ error: 'Set API_FOOTBALL_KEY in Railway variables first.' });
+// ---------- API-Football usage status (for the manual-refresh countdown) ----------
 
-  const endpoint = req.query.endpoint || 'games'; // e.g. ?endpoint=leagues to look up NFL's league ID
-  const date = req.query.date || new Date().toISOString().slice(0, 10);
-  const live = req.query.live; // pass ?live=all to test the live-games query instead of date
-  const league = req.query.league; // pass once we know NFL's league ID
-  const season = req.query.season;
-
+app.get('/api/nfl-data-usage', (req, res) => {
   try {
-    const fetch = require('node-fetch');
-    let url;
-    if (endpoint === 'leagues') {
-      url = `https://v1.american-football.api-sports.io/leagues`;
-    } else if (endpoint === 'playerstats') {
-      url = `https://v1.american-football.api-sports.io/games/statistics/players?id=${req.query.gameId}`;
-    } else if (endpoint === 'events') {
-      url = `https://v1.american-football.api-sports.io/games/events?id=${req.query.gameId}`;
-    } else if (live) {
-      url = `https://v1.american-football.api-sports.io/games?live=${live}`;
-    } else if (league && season) {
-      url = `https://v1.american-football.api-sports.io/games?league=${league}&season=${season}&date=${date}`;
-    } else {
-      url = `https://v1.american-football.api-sports.io/games?date=${date}`;
-    }
-
-    const response = await fetch(url, { headers: { 'x-apisports-key': key } });
-    const data = await response.json();
-    res.json({ status: response.status, queriedUrl: url, data });
+    res.json(nflScores.getUsageStatus());
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Manually triggers a real API-Football fetch and updates the cache that
+// /api/snapshot reads from on every poll. This is the ONLY path that
+// spends API-Football daily-quota requests — everything else reads the
+// cache. Returns the updated usage status alongside the fresh data so the
+// frontend can update its countdown immediately without a second call.
+app.post('/api/refresh-nfl-data', async (req, res) => {
+  try {
+    const { games, summaries } = await nflScores.fetchAllLiveGameSummaries();
+    cachedNflData = { games, summaries, gameDataError: null, fetchedAt: new Date().toISOString() };
+    writeJSON('cachedNflData', cachedNflData);
+    res.json({ success: true, usage: nflScores.getUsageStatus(), fetchedAt: cachedNflData.fetchedAt });
+  } catch (err) {
+    // Keep the old cached data on a failed refresh — a bad refresh attempt
+    // shouldn't wipe out the last successful one.
+    res.status(500).json({ success: false, error: err.message, usage: nflScores.getUsageStatus() });
   }
 });
 

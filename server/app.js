@@ -68,7 +68,7 @@ async function fetchSnapshot() {
 function renderSnapshot(snapshot) {
   if (!snapshot) return;
   lastSnapshotData = snapshot;
-  renderFantasyGrid(snapshot.espnLeagues || [], snapshot.yahoo);
+  renderFantasyGrid(snapshot.espnLeagues || [], snapshot.yahoo, snapshot.espnLeaguesError);
   renderPickem(activePickemPool === 1 ? snapshot.pickem1 : snapshot.pickem2);
   renderSurvivor(snapshot.survivor);
   renderTdTracker(snapshot.td);
@@ -81,58 +81,133 @@ function renderSnapshot(snapshot) {
 
 function normalizeEspnLeague(league) {
   const m = (league.matchups || [])[0];
+  const myRoster = league.myRoster || [];
+  const opponentRoster = league.opponentRoster || [];
+
+  // Pair each of Bill's starters with his opponent's starter in the SAME
+  // lineup slot (both teams use the same slot structure — same number of
+  // RB/WR/etc slots — so pairing by position label lines up correctly even
+  // though the two arrays hold different players). Bill's roster order
+  // (already sorted QB/RB/WR/TE/FLEX/DEF/K) drives the row order.
+  const opponentByPositionQueue = {};
+  opponentRoster.forEach(p => {
+    const key = p.position || 'UNKNOWN';
+    (opponentByPositionQueue[key] = opponentByPositionQueue[key] || []).push(p);
+  });
+
+  const players = myRoster.map(p => {
+    const key = p.position || 'UNKNOWN';
+    const opponentPlayer = (opponentByPositionQueue[key] || []).shift() || null;
+    return {
+      playerName: p.playerName,
+      position: p.position,
+      points: p.points,
+      note: null,
+      opponentPlayerName: opponentPlayer?.playerName || null,
+      opponentPoints: opponentPlayer?.points ?? null,
+    };
+  });
+
   return {
     id: `espn-${league.leagueId}`,
     title: league.leagueName || 'League',
-    tag: null,
-    error: league.error || null,
+    tag: league.myTeamFound === false ? 'name not matched' : null,
+    error: league.error || null, // a full league-fetch failure — blocks the whole box
+    playerDetailNote: league.myRosterError || null, // partial failure — matchup score still shows, just no player breakdown
+    showOpponentColumn: true,
+    // ESPN assigns home/away arbitrarily — ESPN's own backend now normalizes
+    // this to "mine"/"opponent" so Bill's side is always shown on the left,
+    // matching the player rows below (which were always his-side-first).
     totals: m ? {
-      home: { label: m.home?.teamName, total: m.home?.score },
-      away: m.away ? { label: m.away.teamName, total: m.away.score } : null,
+      home: { label: m.mine?.teamName, total: m.mine?.score },
+      away: m.opponent ? { label: m.opponent.teamName, total: m.opponent.score } : null,
     } : null,
-    // ESPN roster-level player scoring isn't pulled in the current matchup
-    // view (would need the mRoster player breakdown per team) — shown as a
-    // simple matchup box for now, players list intentionally empty.
-    players: [],
+    players,
   };
 }
 
 function normalizeYahoo(yahoo) {
   const roster = yahoo?.roster?.roster || [];
+  const opponentRoster = yahoo?.roster?.opponentRoster || [];
   const score = yahoo?.score;
+  const opponentScore = yahoo?.opponentScore;
   const myTotal = score?.total;
+  const opponentTotal = opponentScore?.total;
 
-  // Fall back to showing captured projections before kickoff, when the live
-  // scoring engine has nothing yet — better than every player reading "—"
-  // all Sunday morning.
+  // Show a plain dash until real live scoring exists — no projection
+  // fallback. Bill wants the tile to visibly read "nothing live yet"
+  // rather than a projected number that could be mistaken for a real one.
   const players = score?.players?.length
-    ? score.players.map(p => {
-        if (p.points != null) return p;
-        const captured = roster.find(r => r.playerName === p.playerName);
-        return captured?.projection != null
-          ? { ...p, points: captured.projection, note: (p.note ? p.note + ' ' : '') + '(showing projection — game not live yet)' }
-          : p;
-      })
-    : roster.map(r => ({ playerName: r.playerName, position: r.position, points: r.projection ?? null, note: r.projection != null ? '(projection)' : null }));
+    ? score.players
+    : roster.map(r => ({ playerName: r.playerName, position: r.position, points: null, note: null }));
+
+  // Same position-slot pairing approach as the ESPN boxes: match Bill's
+  // opponent's player in the same slot to each of Bill's own rows. The
+  // opponent roster is photo-captured (not guaranteed identical position
+  // label formatting), so this may leave some rows unpaired if a label
+  // doesn't match exactly — falls back to a dash for that row rather than
+  // guessing at a pairing.
+  const opponentPlayers = opponentScore?.players?.length
+    ? opponentScore.players
+    : opponentRoster.map(r => ({ playerName: r.playerName, position: r.position, points: null }));
+
+  const opponentByPositionQueue = {};
+  opponentPlayers.forEach(p => {
+    const key = p.position || 'UNKNOWN';
+    (opponentByPositionQueue[key] = opponentByPositionQueue[key] || []).push(p);
+  });
+
+  const pairedPlayers = players.map(p => {
+    const key = p.position || 'UNKNOWN';
+    const opp = (opponentByPositionQueue[key] || []).shift() || null;
+    return {
+      ...p,
+      opponentPlayerName: opp?.playerName || null,
+      opponentPoints: opp?.points ?? null,
+    };
+  });
 
   return {
     id: 'yahoo',
     title: 'Red Hawk (Yahoo)', // full team name is too long for the box header — shown in full in the totals row instead
     tag: 'estimate',
+    captureKind: 'yahooRoster',
+    allowManualAdjust: true, // Yahoo scoring is a reconstructed estimate — K distance and DEF are known-weak, unlike ESPN's own native scoring
+    showOpponentColumn: opponentRoster.length > 0, // only if the opponent's roster was actually captured
     error: null,
     totals: {
       home: { label: 'Who Drank All the Bitch Pops', total: myTotal },
-      away: yahoo?.roster?.opponentTeamName ? { label: yahoo.roster.opponentTeamName, total: null } : null,
+      away: yahoo?.roster?.opponentTeamName ? { label: yahoo.roster.opponentTeamName, total: opponentTotal ?? null } : null,
     },
-    players,
+    players: pairedPlayers,
   };
 }
 
-function renderFantasyGrid(espnLeagues, yahoo) {
-  const boxes = [
-    ...espnLeagues.map(normalizeEspnLeague),
-    normalizeYahoo(yahoo),
-  ];
+function renderFantasyGrid(espnLeagues, yahoo, espnLeaguesError) {
+  let boxes;
+
+  if (espnLeaguesError) {
+    // A real fetch error occurred — show one visible error box instead of
+    // silently rendering nothing, so this is never invisible again.
+    boxes = [
+      { id: 'espn-error', title: 'ESPN Leagues', tag: null, error: espnLeaguesError, totals: null, players: [] },
+      normalizeYahoo(yahoo),
+    ];
+  } else if (!espnLeagues.length) {
+    // No error thrown, but also no leagues came back — most likely
+    // ESPN_LEAGUE_IDS is empty/misconfigured. Show a placeholder rather
+    // than just leaving three grid cells blank with no explanation.
+    boxes = [
+      { id: 'espn-empty', title: 'ESPN Leagues', tag: null, error: 'No leagues configured or returned — check ESPN_LEAGUE_IDS.', totals: null, players: [] },
+      normalizeYahoo(yahoo),
+    ];
+  } else {
+    boxes = [
+      ...espnLeagues.map(normalizeEspnLeague),
+      normalizeYahoo(yahoo),
+    ];
+  }
+
   lastRenderedFantasyBoxes = boxes;
 
   const container = document.getElementById('fantasyGrid');
@@ -155,7 +230,13 @@ function renderFantasyBox(box, expanded) {
 
   const head = document.createElement('div');
   head.className = 'fantasy-box-head';
-  head.innerHTML = `<h2>${escapeHtml(box.title)}</h2>${box.tag ? `<span class="fantasy-box-tag">${escapeHtml(box.tag)}</span>` : ''}`;
+  head.innerHTML = `
+    <h2>${escapeHtml(box.title)}</h2>
+    <span class="fantasy-box-head-right">
+      ${box.allowManualAdjust ? `<button class="reset-adjust-btn">Reset All</button>` : (box.tag ? `<span class="fantasy-box-tag">${escapeHtml(box.tag)}</span>` : '')}
+      ${box.captureKind ? `<button class="capture-btn box-capture-btn" data-kind="${escapeHtml(box.captureKind)}">Capture</button>` : ''}
+    </span>
+  `;
   el.appendChild(head);
 
   if (box.error) {
@@ -189,20 +270,38 @@ function renderFantasyBox(box, expanded) {
 
     const playersBody = document.createElement('div');
     playersBody.className = 'fantasy-box-players';
-    if (!box.players || !box.players.length) {
+    if (box.playerDetailNote) {
+      playersBody.innerHTML = `<p class="empty-state">Player detail unavailable: ${escapeHtml(box.playerDetailNote)}</p>`;
+    } else if (!box.players || !box.players.length) {
       playersBody.innerHTML = `<p class="empty-state">No player detail yet.</p>`;
     } else {
       box.players.forEach(p => {
         const row = document.createElement('div');
-        row.className = 'player-row';
-        const needsAdjust = p.position === 'K' || p.position === 'DEF' || p.position === 'D/ST' || p.note;
-        row.innerHTML = `
-          <span class="player-name">${escapeHtml(p.playerName)} <span class="player-pos">${escapeHtml(p.position || '')}</span></span>
-          <span style="display:flex; align-items:center;">
-            <span class="player-pts">${p.points != null ? p.points : '—'}</span>
-            ${needsAdjust ? `<button class="adjust-btn" data-player="${escapeHtml(p.playerName)}" data-current="${p.points != null ? p.points : ''}">adjust</button>` : ''}
-          </span>
-        `;
+        // Manual override only makes sense for kicker distance and D/ST —
+        // Yahoo's two known-weak reconstructed scoring spots. A player
+        // simply showing a pre-game projection note is not itself a reason
+        // to offer an override.
+        const needsAdjust = box.allowManualAdjust && (p.position === 'K' || p.position === 'DEF' || p.position === 'D/ST');
+
+        if (box.showOpponentColumn) {
+          row.className = 'player-row player-row-vs';
+          row.innerHTML = `
+            <span class="player-pts">${p.points != null ? p.points : '—'}${needsAdjust ? `<button class="adjust-btn" data-player="${escapeHtml(p.playerName)}" data-current="${p.points != null ? p.points : ''}">adjust</button>` : ''}</span>
+            <span class="player-name">${escapeHtml(p.playerName)}</span>
+            <span class="player-pos-center">${escapeHtml(p.position || '')}</span>
+            <span class="player-name opponent-name">${p.opponentPlayerName ? escapeHtml(p.opponentPlayerName) : '—'}</span>
+            <span class="player-pts">${p.opponentPoints != null ? p.opponentPoints : '—'}${needsAdjust && p.opponentPlayerName ? `<button class="adjust-btn" data-player="${escapeHtml(p.opponentPlayerName)}" data-current="${p.opponentPoints != null ? p.opponentPoints : ''}">adjust</button>` : ''}</span>
+          `;
+        } else {
+          row.className = 'player-row';
+          row.innerHTML = `
+            <span class="player-name">${escapeHtml(p.playerName)} <span class="player-pos">${escapeHtml(p.position || '')}</span></span>
+            <span style="display:flex; align-items:center;">
+              <span class="player-pts">${p.points != null ? p.points : '—'}</span>
+              ${needsAdjust ? `<button class="adjust-btn" data-player="${escapeHtml(p.playerName)}" data-current="${p.points != null ? p.points : ''}">adjust</button>` : ''}
+            </span>
+          `;
+        }
         playersBody.appendChild(row);
       });
     }
@@ -210,10 +309,20 @@ function renderFantasyBox(box, expanded) {
   }
 
   el.addEventListener('click', (e) => {
-    // Don't trigger expand/collapse when tapping the adjust button itself.
+    // Don't trigger expand/collapse when tapping the adjust, capture, or reset buttons.
     if (e.target.classList.contains('adjust-btn')) {
       e.stopPropagation();
       openAdjustPrompt(e.target.dataset.player, e.target.dataset.current);
+      return;
+    }
+    if (e.target.classList.contains('box-capture-btn')) {
+      e.stopPropagation();
+      openCaptureModal(e.target.dataset.kind);
+      return;
+    }
+    if (e.target.classList.contains('reset-adjust-btn')) {
+      e.stopPropagation();
+      resetAllAdjustments();
       return;
     }
     toggleExpand(box.id);
@@ -271,7 +380,7 @@ function renderPickem(pickem) {
     cell.className = `pick-cell status-${p.status || 'pending'}`;
     cell.innerHTML = `
       <span class="pick-team">${escapeHtml(p.pickedTeam || '')}</span>
-      <span class="pick-status-dot"></span>
+      ${p.confidence != null ? `<span class="pick-confidence">${escapeHtml(String(p.confidence))}</span>` : '<span class="pick-status-dot"></span>'}
     `;
     body.appendChild(cell);
   });
@@ -356,10 +465,26 @@ async function openAdjustPrompt(playerName, currentValue) {
     return;
   }
 
+  // Tag the override with the current NFL week so it doesn't silently
+  // carry over and get misapplied to a different week's game.
+  const week = lastSnapshotData?.currentWeek ?? null;
+
   await fetch('/api/yahoo-manual-adjustments', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ playerName, points }),
+    body: JSON.stringify({ playerName, points, week }),
+  });
+  fetchSnapshot();
+}
+
+async function resetAllAdjustments() {
+  if (!window.confirm('Clear all manual overrides for this week?')) return;
+
+  const week = lastSnapshotData?.currentWeek ?? null;
+  await fetch('/api/yahoo-manual-adjustments/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ week }),
   });
   fetchSnapshot();
 }
@@ -466,7 +591,50 @@ captureConfirmBtn.addEventListener('click', async () => {
   }
 });
 
+// ---------- NFL data manual refresh (API-Football free-tier quota) ----------
+
+const refreshNflBtn = document.getElementById('refreshNflBtn');
+const nflUsageEl = document.getElementById('nflUsage');
+
+async function fetchNflUsage() {
+  try {
+    const res = await fetch('/api/nfl-data-usage', { cache: 'no-store' });
+    const usage = await res.json();
+    renderNflUsage(usage);
+  } catch (err) {
+    console.error('Failed to fetch NFL data usage', err);
+  }
+}
+
+function renderNflUsage(usage) {
+  if (usage.remaining == null) return;
+  nflUsageEl.textContent = `${usage.remaining}/${usage.limit} refreshes left today`;
+  nflUsageEl.classList.toggle('low', usage.remaining <= 10);
+  refreshNflBtn.disabled = usage.remaining <= 0;
+}
+
+refreshNflBtn.addEventListener('click', async () => {
+  refreshNflBtn.disabled = true;
+  refreshNflBtn.textContent = 'Refreshing…';
+  try {
+    const res = await fetch('/api/refresh-nfl-data', { method: 'POST' });
+    const result = await res.json();
+    if (result.usage) renderNflUsage(result.usage);
+    if (!result.success) {
+      alert(`Refresh failed: ${result.error}`);
+    }
+    await fetchSnapshot(); // pull the newly-cached data into the UI immediately
+  } catch (err) {
+    alert(`Refresh failed: ${err.message}`);
+  } finally {
+    refreshNflBtn.textContent = 'Refresh Live Data';
+    refreshNflBtn.disabled = false;
+    fetchNflUsage(); // re-sync in case disabled state should persist (quota hit 0)
+  }
+});
+
 // ---------- Init ----------
 
 fetchTrackingState();
 fetchSnapshot();
+fetchNflUsage();

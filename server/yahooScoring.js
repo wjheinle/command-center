@@ -23,7 +23,7 @@ function normalizePlayerName(name) {
   if (!name) return '';
   return name
     .toLowerCase()
-    .replace(/[.']/g, '')              // "A.J." -> "aj", "Ja'Marr" -> "jamarr"
+    .replace(/[.'-]/g, '')             // "A.J." -> "aj", "Ja'Marr" -> "jamarr", "Smith-Njigba" -> "smithnjigba"
     .replace(/\s+(jr|sr|ii|iii|iv|v)\.?$/i, '') // strip trailing suffixes
     .trim()
     .replace(/\s+/g, ' ');
