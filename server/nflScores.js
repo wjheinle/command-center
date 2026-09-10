@@ -27,13 +27,21 @@ function sleep(ms) {
 // Confirmed live on opening night 2026: ESPN's site.api.espn.com endpoint
 // returns a persistent 403 to Railway's outbound IP specifically (retries
 // don't help — it's not intermittent rate-limiting), while the exact same
-// request succeeds fine from other networks. allorigins.win is a public
-// CORS/fetch proxy — routing through it means the FINAL request to ESPN
-// comes from allorigins' IP, not Railway's, which sidesteps whatever list
-// Railway's IP is on. This is a fallback of last resort: a free third-party
-// service with no uptime guarantee, so it's only used AFTER a direct
-// attempt fails, never as the primary path.
-const PROXY_FALLBACK_PREFIX = 'https://api.allorigins.win/raw?url=';
+// request succeeds fine from other networks. These are public fetch
+// proxies — routing through one means the FINAL request to ESPN comes
+// from the proxy's IP, not Railway's, which may sidestep whatever list
+// Railway's IP is on. Tried in order; each is a free third-party service
+// with no uptime guarantee, so these are fallbacks of last resort, only
+// used AFTER a direct attempt fails, never as the primary path.
+// allorigins.win was tried first and returned a 522 (its own backend
+// timing out) during live testing — corsproxy.io tried first now since it
+// publishes a much higher uptime track record; allorigins kept as a
+// second-tier fallback rather than removed, since a 522 was allorigins
+// failing, not proof it always will.
+const PROXY_FALLBACKS = [
+  (url) => `https://corsproxy.io/?url=${encodeURIComponent(url)}`,
+  (url) => `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`,
+];
 
 async function fetchWithRetry(url, options, attempts = 3) {
   let lastError;
@@ -53,18 +61,22 @@ async function fetchWithRetry(url, options, attempts = 3) {
     if (i < attempts - 1) await sleep(500 * (i + 1)); // 500ms, then 1000ms
   }
 
-  // Direct attempts exhausted — try once through the proxy before giving up
-  // entirely. No retry loop here; if the proxy itself is down or slow,
-  // failing fast and falling back to the last-known snapshot (handled
-  // upstream in index.js) is better than compounding two unreliable paths.
-  try {
-    const proxyUrl = PROXY_FALLBACK_PREFIX + encodeURIComponent(url);
-    const res = await fetch(proxyUrl, { headers: options?.headers });
-    if (res.ok) return res;
-    throw new Error(`proxy fallback also failed: ${res.status} ${res.statusText}`);
-  } catch (proxyErr) {
-    throw new Error(`${lastError.message} (direct, after retries); proxy fallback also failed: ${proxyErr.message}`);
+  // Direct attempts exhausted — try each proxy fallback in order before
+  // giving up entirely. No retry loop per-proxy; if one is down or slow,
+  // move to the next rather than compounding delay on an unreliable path.
+  const proxyErrors = [];
+  for (const buildProxyUrl of PROXY_FALLBACKS) {
+    try {
+      const proxyUrl = buildProxyUrl(url);
+      const res = await fetch(proxyUrl, { headers: options?.headers });
+      if (res.ok) return res;
+      proxyErrors.push(`${res.status} ${res.statusText}`);
+    } catch (proxyErr) {
+      proxyErrors.push(proxyErr.message);
+    }
   }
+
+  throw new Error(`${lastError.message} (direct, after retries); all proxy fallbacks failed: ${proxyErrors.join(' | ')}`);
 }
 
 async function fetchScoreboard() {
