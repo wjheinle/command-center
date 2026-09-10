@@ -130,7 +130,19 @@ async function fetchScoreboard() {
       }
     });
 
-    writeJSON('lastKnownGames', cache);
+    // Persist the FULL merged result (including already-finished games
+    // carried forward from a prior cache), not just what came back live
+    // this call. Confirmed via live testing: a mid-game redeploy caused
+    // this exact game to disappear entirely from a later /api/snapshot —
+    // writing only the newly-live entries left finished games one
+    // redeploy away from being silently dropped if the cache file itself
+    // was ever reset. Writing the merged set means every refresh
+    // re-affirms every game this session has ever seen, live or finished,
+    // for as long as the underlying volume survives.
+    const mergedCache = {};
+    merged.forEach(g => { mergedCache[g.gameId] = { ...g, cachedAt: cache[g.gameId]?.cachedAt || now }; });
+
+    writeJSON('lastKnownGames', mergedCache);
     return merged;
   } catch (err) {
     throw new Error(`NFL scoreboard fetch failed: ${err.message}`);
