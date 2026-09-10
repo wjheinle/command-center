@@ -8,19 +8,50 @@ const fetch = require('node-fetch');
 const SCOREBOARD_URL = 'https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard';
 
 // ESPN's edge network rejects requests with no User-Agent (or an obvious
-// bot-like default one) with a 403. A standard browser UA gets through fine.
+// bot-like default one) with a 403. A standard browser UA gets through fine
+// most of the time, though under heavy real-world load (e.g. opening night)
+// ESPN's anti-bot/rate-limiting may reject even well-formed requests from
+// cloud/datacenter IP ranges intermittently — the retry below is aimed at
+// that intermittent case specifically, not a hard permanent block.
 const BROWSER_HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-  Accept: 'application/json',
+  Accept: 'application/json, text/plain, */*',
+  'Accept-Language': 'en-US,en;q=0.9',
+  Referer: 'https://www.espn.com/',
 };
 
-async function fetchScoreboard() {
-  const res = await fetch(SCOREBOARD_URL, { headers: BROWSER_HEADERS });
-  if (!res.ok) {
-    throw new Error(`NFL scoreboard fetch failed: ${res.status} ${res.statusText}`);
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchWithRetry(url, options, attempts = 3) {
+  let lastError;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, options);
+      if (res.ok) return res;
+      lastError = new Error(`${res.status} ${res.statusText}`);
+      // Only worth retrying on likely-transient statuses — a real 404 or
+      // similar client error won't fix itself on retry.
+      if (res.status !== 403 && res.status !== 429 && res.status < 500) {
+        throw lastError;
+      }
+    } catch (err) {
+      lastError = err;
+    }
+    if (i < attempts - 1) await sleep(500 * (i + 1)); // 500ms, then 1000ms
   }
-  const data = await res.json();
-  return normalizeScoreboard(data);
+  throw lastError;
+}
+
+async function fetchScoreboard() {
+  try {
+    const res = await fetchWithRetry(SCOREBOARD_URL, { headers: BROWSER_HEADERS });
+    const data = await res.json();
+    return normalizeScoreboard(data);
+  } catch (err) {
+    throw new Error(`NFL scoreboard fetch failed: ${err.message}`);
+  }
 }
 
 function normalizeScoreboard(data) {
@@ -56,14 +87,15 @@ function normalizeScoreboard(data) {
 // Yahoo scoring engine both need this same endpoint's data.
 async function fetchGameSummary(gameId) {
   const url = `https://site.api.espn.com/apis/site/v2/sports/football/nfl/summary?event=${gameId}`;
-  const res = await fetch(url, { headers: BROWSER_HEADERS });
-  if (!res.ok) {
-    throw new Error(`NFL game summary fetch failed for ${gameId}: ${res.status} ${res.statusText}`);
+  try {
+    const res = await fetchWithRetry(url, { headers: BROWSER_HEADERS });
+    const data = await res.json();
+    const boxScore = normalizeBoxScore(data);
+    const touchdowns = extractTouchdowns(data, gameId);
+    return { ...boxScore, touchdowns };
+  } catch (err) {
+    throw new Error(`NFL game summary fetch failed for ${gameId}: ${err.message}`);
   }
-  const data = await res.json();
-  const boxScore = normalizeBoxScore(data);
-  const touchdowns = extractTouchdowns(data, gameId);
-  return { ...boxScore, touchdowns };
 }
 
 // Pulls every player's stat line out of ESPN's boxscore payload into a flat,
