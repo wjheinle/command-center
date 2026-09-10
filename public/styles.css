@@ -78,6 +78,32 @@ html, body {
   color: var(--text-dim);
 }
 
+.nfl-usage {
+  font-size: 12px;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.nfl-usage.low {
+  color: var(--loss);
+}
+
+.refresh-btn {
+  padding: 7px 14px;
+  border-radius: 18px;
+  border: 1px solid var(--line);
+  background: var(--live-bg);
+  color: var(--live);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .tracking-btn {
   display: flex;
   align-items: center;

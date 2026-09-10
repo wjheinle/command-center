@@ -591,7 +591,50 @@ captureConfirmBtn.addEventListener('click', async () => {
   }
 });
 
+// ---------- NFL data manual refresh (API-Football free-tier quota) ----------
+
+const refreshNflBtn = document.getElementById('refreshNflBtn');
+const nflUsageEl = document.getElementById('nflUsage');
+
+async function fetchNflUsage() {
+  try {
+    const res = await fetch('/api/nfl-data-usage', { cache: 'no-store' });
+    const usage = await res.json();
+    renderNflUsage(usage);
+  } catch (err) {
+    console.error('Failed to fetch NFL data usage', err);
+  }
+}
+
+function renderNflUsage(usage) {
+  if (usage.remaining == null) return;
+  nflUsageEl.textContent = `${usage.remaining}/${usage.limit} refreshes left today`;
+  nflUsageEl.classList.toggle('low', usage.remaining <= 10);
+  refreshNflBtn.disabled = usage.remaining <= 0;
+}
+
+refreshNflBtn.addEventListener('click', async () => {
+  refreshNflBtn.disabled = true;
+  refreshNflBtn.textContent = 'Refreshing…';
+  try {
+    const res = await fetch('/api/refresh-nfl-data', { method: 'POST' });
+    const result = await res.json();
+    if (result.usage) renderNflUsage(result.usage);
+    if (!result.success) {
+      alert(`Refresh failed: ${result.error}`);
+    }
+    await fetchSnapshot(); // pull the newly-cached data into the UI immediately
+  } catch (err) {
+    alert(`Refresh failed: ${err.message}`);
+  } finally {
+    refreshNflBtn.textContent = 'Refresh Live Data';
+    refreshNflBtn.disabled = false;
+    fetchNflUsage(); // re-sync in case disabled state should persist (quota hit 0)
+  }
+});
+
 // ---------- Init ----------
 
 fetchTrackingState();
 fetchSnapshot();
+fetchNflUsage();
